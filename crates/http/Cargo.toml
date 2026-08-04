@@ -52,6 +52,7 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 tower = { workspace = true, features = ["util"] }
 urlencoding = "2.1"
@@ -60,6 +61,10 @@ crypto = { path = "../crypto" }
 # Enable test-utils feature for integration tests
 defra-http = { path = ".", features = ["test-utils"] }
 storage = { path = "../storage" }
+
+[[bench]]
+name = "transport"
+harness = false
 
 [lints]
 workspace = true
