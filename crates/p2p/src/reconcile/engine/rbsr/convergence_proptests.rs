@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 
 use proptest::prelude::*;
 
-use super::simulate::{ids, run, source};
+use super::simulate::{difference_sizes, diverged, ids, run, source};
 
 /// Asserts a session reproduces the naive set difference exactly.
 fn check(local_seeds: &[u64], remote_seeds: &[u64]) -> Result<(), TestCaseError> {
@@ -36,39 +36,6 @@ fn check(local_seeds: &[u64], remote_seeds: &[u64]) -> Result<(), TestCaseError>
         "have must equal local \\ remote"
     );
     Ok(())
-}
-
-/// Builds a set pair of about `n` items whose symmetric difference is exactly
-/// `d`, with the divergent items scattered through the keyspace rather than
-/// clustered — the harder case for a range protocol.
-fn diverged(n: usize, d: usize, seed: u64) -> (Vec<u64>, Vec<u64>) {
-    let mut universe: Vec<u64> = (0..(n + d) as u64).collect();
-    shuffle(&mut universe, seed);
-
-    let (divergent, shared) = universe.split_at(d);
-    let local_only = d.div_ceil(2);
-
-    let mut local = shared.to_vec();
-    local.extend_from_slice(&divergent[..local_only]);
-    let mut remote = shared.to_vec();
-    remote.extend_from_slice(&divergent[local_only..]);
-
-    (local, remote)
-}
-
-fn shuffle(values: &mut [u64], seed: u64) {
-    let mut state = seed | 1;
-    for index in (1..values.len()).rev() {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        values.swap(index, (state % (index as u64 + 1)) as usize);
-    }
-}
-
-/// The difference sizes the acceptance criteria call for at a given set size.
-fn difference_sizes(n: usize) -> [usize; 5] {
-    [0, 1, 8, n / 2, n]
 }
 
 fn check_tier(n: usize, seed: u64) {

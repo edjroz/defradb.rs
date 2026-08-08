@@ -6,7 +6,7 @@ use super::caps::{BRANCHING_FACTOR, ID_LIST_THRESHOLD, MAX_IDS_PER_RANGE};
 use super::engine::{RbsrEngine, Role};
 use super::message::{Mode, Range, RbsrMessage};
 use super::segment_tree::SegmentTree;
-use super::simulate::{id, ids, run, source};
+use super::simulate::{difference_sizes, diverged, id, ids, run, source};
 use super::{responder, Fingerprint};
 use crate::reconcile::engine::{Engine, Progress};
 use crate::reconcile::error::ReconcileError;
@@ -220,6 +220,29 @@ fn a_peer_whose_fingerprints_never_agree_hits_the_round_cap() {
         "a peer that never agrees must terminate the session, not hang it"
     );
     assert_eq!(session.rounds(), MAX_ROUNDS);
+}
+
+/// Prints what a session actually costs across set sizes and difference sizes.
+/// This is the evidence behind keeping the Go engine's branching factor and
+/// ID-list threshold: it shows where the bytes go before anyone tunes them.
+/// Measurement, not assertion:
+/// `cargo test -p p2p --lib session_cost_table -- --ignored --nocapture`.
+#[test]
+#[ignore = "prints a measurement table rather than asserting"]
+fn session_cost_table() {
+    println!("n,d,rounds,bytes,bytes_per_diff_item");
+    for n in [1_000usize, 10_000, 100_000] {
+        for d in difference_sizes(n) {
+            let (local, remote) = diverged(n, d, 0x5eed_c057);
+            let outcome = run(&source(local), &source(remote)).expect("converges");
+            let per_item = if d == 0 {
+                0.0
+            } else {
+                outcome.bytes as f64 / d as f64
+            };
+            println!("{n},{d},{},{},{per_item:.1}", outcome.rounds, outcome.bytes);
+        }
+    }
 }
 
 #[test]

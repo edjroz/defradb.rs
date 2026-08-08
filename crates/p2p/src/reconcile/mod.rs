@@ -25,7 +25,9 @@
 //! - Fingerprint `SHA256( (Σ SHA256(id)) mod 2^256 || uvarint(count) )[..16]`,
 //!   including the count fold that defeats additive cancellation.
 //! - Caps: branching factor 16, ID-list threshold 64, max IDs per range 64, max
-//!   ranges per message 16384, max rounds 32. See [`engine::rbsr::caps`].
+//!   ranges per message 16384 (see [`engine::rbsr::caps`]) and max rounds 32
+//!   (see [`session::MAX_ROUNDS`]). Phase 1's measurements found no reason to
+//!   retune any of them: sessions converge in at most four rounds at n=100 000.
 //! - Split heuristic: even division of the *index* window into up to 16 buckets
 //!   whose bounds land on real item sort keys, so both peers derive identical
 //!   windows from the same bounds.
@@ -62,6 +64,10 @@
 //! 7. **The initiator does not transmit its terminal all-skip message.** Go's
 //!    driver does the same, but leaves it implicit; here [`session::Session`]
 //!    makes it explicit by returning no outbound message once converged.
+//! 8. **The ID-list cap is enforced on receipt, not only on emission.** Go
+//!    guarantees it when building a list; both sides here also reject an
+//!    incoming list that exceeds it, so a peer cannot make the local node
+//!    allocate past the cap.
 //!
 //! ## Deferred, not deviated
 //!

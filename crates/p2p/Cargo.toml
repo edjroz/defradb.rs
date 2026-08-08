@@ -94,7 +94,12 @@ iroh-transport = ["dep:iroh", "dep:iroh-gossip", "dep:iroh-tickets", "dep:noq", 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 p2p = { path = ".", features = ["test-utils"] }
+criterion = { workspace = true }
 proptest = { workspace = true }
+
+[[bench]]
+name = "reconcile"
+harness = false
 
 [package.metadata.cargo-machete]
 ignored = ["noq"]
