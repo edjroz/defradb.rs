@@ -55,6 +55,10 @@ fn test_net_config_defaults() {
     assert!(config.peers.is_empty());
     assert!(config.pubsub_enabled);
     assert!(config.relay_enabled);
+    assert!(
+        !config.p2p_reconcile_enabled,
+        "set reconciliation must stay opt-in"
+    );
 }
 
 #[test]
