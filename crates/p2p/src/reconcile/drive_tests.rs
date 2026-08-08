@@ -18,7 +18,7 @@ fn ids(seeds: impl IntoIterator<Item = u64>) -> BTreeSet<ItemId> {
 }
 
 /// Runs both roles over one in-memory pipe, as the transport does.
-async fn reconcile(local: Vec<u64>, remote: Vec<u64>) -> Diff {
+async fn reconcile(local: Vec<u64>, remote: Vec<u64>) -> (Diff, SessionCost) {
     let (mut initiator_side, mut responder_side) = MemoryStream::pair();
 
     let responder = tokio::spawn(async move {
@@ -27,25 +27,30 @@ async fn reconcile(local: Vec<u64>, remote: Vec<u64>) -> Diff {
     });
 
     let session = Session::new(RbsrEngine::initiator(source(local)));
-    let diff = drive_initiator(session, &mut initiator_side)
+    let outcome = drive_initiator(session, &mut initiator_side)
         .await
         .expect("session must converge");
     responder
         .await
         .unwrap()
         .expect("responder must end cleanly");
-    diff
+    outcome
+}
+
+/// Most tests only care about what was discovered, not what it cost.
+async fn reconcile_diff(local: Vec<u64>, remote: Vec<u64>) -> Diff {
+    reconcile(local, remote).await.0
 }
 
 #[tokio::test]
 async fn identical_sets_converge_with_an_empty_diff() {
-    let diff = reconcile((0..200).collect(), (0..200).collect()).await;
+    let diff = reconcile_diff((0..200).collect(), (0..200).collect()).await;
     assert!(diff.is_empty(), "no divergence must yield no diff");
 }
 
 #[tokio::test]
 async fn empty_sets_converge() {
-    let diff = reconcile(Vec::new(), Vec::new()).await;
+    let diff = reconcile_diff(Vec::new(), Vec::new()).await;
     assert!(diff.is_empty());
 }
 
@@ -54,7 +59,7 @@ async fn the_discovered_diff_is_exactly_the_true_diff() {
     let local: Vec<u64> = (0..500).filter(|seed| seed % 7 != 0).collect();
     let remote: Vec<u64> = (0..500).filter(|seed| seed % 11 != 0).collect();
 
-    let diff = reconcile(local.clone(), remote.clone()).await;
+    let diff = reconcile_diff(local.clone(), remote.clone()).await;
 
     let local_set = ids(local);
     let remote_set = ids(remote);
@@ -72,7 +77,7 @@ async fn the_discovered_diff_is_exactly_the_true_diff() {
 
 #[tokio::test]
 async fn a_one_sided_set_is_discovered_whole() {
-    let diff = reconcile(Vec::new(), (0..100).collect()).await;
+    let diff = reconcile_diff(Vec::new(), (0..100).collect()).await;
     assert_eq!(diff.need().len(), 100);
     assert!(diff.have().is_empty());
 }
@@ -155,8 +160,64 @@ async fn a_responder_ends_cleanly_when_the_initiator_closes() {
         responder
             .await
             .unwrap()
-            .expect("clean close is not an error"),
+            .expect("clean close is not an error")
+            .rounds,
         0,
         "a session closed before its first round served none"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_initiator_whose_peer_goes_silent_times_out() {
+    // The peer stays alive and holds the stream open but never answers, which a
+    // closed-stream check cannot catch: only a clock can.
+    let (mut initiator_side, _peer_side) = MemoryStream::pair();
+
+    let session = Session::new(RbsrEngine::initiator(source(0..100)));
+    let error = drive_initiator(session, &mut initiator_side)
+        .await
+        .expect_err("a silent peer must fail the session");
+    assert!(matches!(error, ReconcileError::Transport(_)), "{error:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_responder_whose_peer_goes_silent_times_out() {
+    // The exact shape the coordinator sees: a peer opens a session, sends
+    // nothing, and would otherwise pin the responder's task and its snapshot
+    // for as long as it liked.
+    let (_peer_side, mut responder_side) = MemoryStream::pair();
+
+    let session = Session::new(RbsrEngine::responder(source(0..100)));
+    let error = drive_responder(session, &mut responder_side)
+        .await
+        .expect_err("a silent peer must fail the session");
+    assert!(matches!(error, ReconcileError::Transport(_)), "{error:?}");
+}
+
+#[tokio::test]
+async fn a_session_reports_what_it_cost() {
+    let (diff, cost) = reconcile((0..300).collect(), (0..300).collect()).await;
+
+    assert!(diff.is_empty());
+    assert!(cost.rounds > 0, "a converged session consumed messages");
+    assert!(
+        cost.bytes_sent > 0 && cost.bytes_received > 0,
+        "both directions must be counted, got {cost:?}"
+    );
+}
+
+#[tokio::test]
+async fn agreeing_costs_far_less_than_diverging() {
+    // The property that makes reconciliation worth having: cost tracks the
+    // difference, not the size of the sets. Asserted through the counters so it
+    // stays true rather than being taken on trust.
+    let identical: Vec<u64> = (0..500).collect();
+    let (_, agreed) = reconcile(identical.clone(), identical.clone()).await;
+    let (_, diverged) = reconcile(identical, (0..500).filter(|n| n % 3 != 0).collect()).await;
+
+    assert!(
+        agreed.bytes_sent + agreed.bytes_received
+            < (diverged.bytes_sent + diverged.bytes_received) / 4,
+        "a zero-diff session must be far cheaper: agreed {agreed:?} vs diverged {diverged:?}"
     );
 }

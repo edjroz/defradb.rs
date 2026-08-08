@@ -2,7 +2,8 @@
 //!
 //! Two peers holding overlapping sets discover their difference by exchanging
 //! bytes proportional to that difference rather than to the size of the sets.
-//! This module is pure protocol logic: no sockets, no storage, no timers. The
+//! This module is protocol logic plus the loop that drives it: no sockets and
+//! no storage, though the drive loop does bound how long it waits on a peer. The
 //! engines read a local set through [`source::ItemSource`], speak through
 //! [`engine::Engine`], are driven by [`session::Session`], and are framed by
 //! [`codec`]. Nothing outside this module's own tests calls it yet; the
@@ -105,7 +106,7 @@ pub mod source;
 pub mod stream;
 
 pub use codec::{decode, encode, MessageKind, WireMessage, PROTOCOL_VERSION};
-pub use drive::{drive_initiator, drive_responder};
+pub use drive::{drive_initiator, drive_responder, SessionCost};
 pub use engine::{Diff, Engine, Progress};
 pub use error::{ReconcileError, Result};
 pub use open::SessionOpen;

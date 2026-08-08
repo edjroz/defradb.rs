@@ -14,7 +14,15 @@ use cid::Cid;
 use p2p::sync::IrohSyncCoordinator;
 use p2p::transport::PeerId;
 
-/// What one reconciliation session found, from the local node's point of view.
+/// What one reconciliation session found and what it cost.
+///
+/// The cost fields are not diagnostics: control bytes and round count are the
+/// quantities a reconciliation protocol is judged on, so a caller that cannot
+/// read them cannot tell a working session from one that degenerated into
+/// exchanging whole sets.
+///
+/// One session reconciles one direction. `need` is what this node will pull;
+/// `have` is what the peer is missing and will not receive from this session.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ReconcileOutcome {
     /// Head CIDs the peer holds and this node lacked; a fetch is already under
@@ -22,6 +30,12 @@ pub struct ReconcileOutcome {
     pub need: Vec<Cid>,
     /// Head CIDs this node holds and the peer lacked.
     pub have: Vec<Cid>,
+    /// Peer messages this session consumed.
+    pub rounds: usize,
+    /// Encoded frame bytes sent to the peer.
+    pub bytes_sent: u64,
+    /// Encoded frame bytes received from the peer.
+    pub bytes_received: u64,
 }
 
 /// Starts reconciliation sessions against peers.
@@ -54,7 +68,7 @@ impl<B: Blockstore + 'static> ReconcileOperations for CoordinatorReconciler<B> {
         peer_id: &str,
         collection: &str,
     ) -> Result<ReconcileOutcome> {
-        let diff = self
+        let (diff, cost) = self
             .coordinator
             .reconcile_collection(&PeerId::new(peer_id.to_string()), collection)
             .await
@@ -63,6 +77,9 @@ impl<B: Blockstore + 'static> ReconcileOperations for CoordinatorReconciler<B> {
         Ok(ReconcileOutcome {
             need: cids(diff.need()),
             have: cids(diff.have()),
+            rounds: cost.rounds,
+            bytes_sent: cost.bytes_sent,
+            bytes_received: cost.bytes_received,
         })
     }
 }

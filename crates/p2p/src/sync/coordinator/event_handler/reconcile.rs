@@ -14,7 +14,7 @@ use cid::Cid;
 use super::super::dag_context::DagFetchContext;
 use super::super::SyncCoordinator;
 use crate::error::{Error, Result};
-use crate::reconcile::{Diff, ItemId, ReconcileStream};
+use crate::reconcile::{Diff, ItemId, ReconcileStream, SessionCost};
 use crate::sync::reconcile;
 use crate::transport::{P2PTransport, PeerId};
 
@@ -22,13 +22,17 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
     /// Reconciles one collection against a peer and fetches whatever the
     /// session says is missing locally.
     ///
-    /// Returns the difference the session discovered, so a caller can assert on
-    /// what was found rather than only on what eventually arrived.
+    /// Returns the difference the session discovered together with what it
+    /// cost, so a caller can assert on what was found and on how much traffic
+    /// finding it took, rather than only on what eventually arrived.
+    ///
+    /// One session reconciles one direction: this node learns what it needs.
+    /// Making both peers whole means running a session from each side.
     pub async fn reconcile_collection(
         &self,
         peer_id: &PeerId,
         collection_id: &str,
-    ) -> Result<Diff> {
+    ) -> Result<(Diff, SessionCost)> {
         self.ensure_reconcile_enabled()?;
 
         let local = self.reconcile_source()?.snapshot(collection_id).await?;
@@ -38,17 +42,20 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
             .open_reconcile_session(peer_id)
             .await?;
 
-        let diff = reconcile::initiate(stream.as_mut(), collection_id, local).await?;
+        let (diff, cost) = reconcile::initiate(stream.as_mut(), collection_id, local).await?;
         tracing::info!(
             peer_id = %peer_id,
             collection_id = %collection_id,
             need = diff.need().len(),
             have = diff.have().len(),
+            rounds = cost.rounds,
+            bytes_sent = cost.bytes_sent,
+            bytes_received = cost.bytes_received,
             "Reconciliation session converged"
         );
 
         self.fetch_reconciled_heads(peer_id, collection_id, diff.need());
-        Ok(diff)
+        Ok((diff, cost))
     }
 
     /// Serves a session a peer opened.
@@ -69,16 +76,18 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
             let served = async {
                 let collection_id = reconcile::accept(stream.as_mut()).await?;
                 let local = source.snapshot(&collection_id).await?;
-                let rounds = reconcile::serve(stream.as_mut(), local).await?;
-                Ok::<_, Error>((collection_id, rounds))
+                let cost = reconcile::serve(stream.as_mut(), local).await?;
+                Ok::<_, Error>((collection_id, cost))
             }
             .await;
 
             match served {
-                Ok((collection_id, rounds)) => tracing::debug!(
+                Ok((collection_id, cost)) => tracing::info!(
                     peer_id = %peer_id,
                     collection_id = %collection_id,
-                    rounds,
+                    rounds = cost.rounds,
+                    bytes_sent = cost.bytes_sent,
+                    bytes_received = cost.bytes_received,
                     "Served reconciliation session"
                 ),
                 Err(error) => tracing::debug!(

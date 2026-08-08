@@ -14,7 +14,6 @@
 mod reconcile_support;
 
 use anyhow::{Context, Result};
-use embedded::reconcile_ops::ReconcileOutcome;
 use embedded::NodeBuilder;
 use tokio::time::{sleep, Duration};
 
@@ -24,15 +23,28 @@ use reconcile_support::{
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_zero_diff_session_discovers_nothing() -> Result<()> {
+async fn a_zero_diff_session_discovers_nothing_and_costs_almost_nothing() -> Result<()> {
     let pair = Pair::connected().await?;
-    add_note(&pair.initiator, "same").await?;
-    add_note(&pair.responder, "same").await?;
+    for index in 0..40 {
+        let body = format!("same-{index}");
+        add_note(&pair.initiator, &body).await?;
+        add_note(&pair.responder, &body).await?;
+    }
 
     let outcome = pair.reconcile().await?;
     assert!(
         outcome.need.is_empty() && outcome.have.is_empty(),
         "identical sets must produce no difference, got {outcome:?}"
+    );
+
+    // The point of reconciliation is that agreement is cheap regardless of set
+    // size: one fingerprint out, one skip back. Forty documents' worth of head
+    // CIDs would be well over a kilobyte, so this fails loudly if a session ever
+    // degenerates into exchanging the set itself.
+    assert_eq!(outcome.rounds, 1, "agreement should settle in one round");
+    assert!(
+        outcome.bytes_sent + outcome.bytes_received < 512,
+        "a zero-diff session must be near-noop, cost {outcome:?}"
     );
 
     pair.shutdown().await
@@ -43,7 +55,11 @@ async fn both_empty_collections_converge() -> Result<()> {
     let pair = Pair::connected().await?;
 
     let outcome = pair.reconcile().await?;
-    assert_eq!(outcome, ReconcileOutcome::default());
+    assert!(outcome.need.is_empty() && outcome.have.is_empty());
+    assert!(
+        outcome.bytes_sent + outcome.bytes_received < 512,
+        "two empty sets must agree almost for free, cost {outcome:?}"
+    );
 
     pair.shutdown().await
 }

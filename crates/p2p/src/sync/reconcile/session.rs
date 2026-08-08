@@ -8,7 +8,7 @@ use crate::error::{Error, Result};
 use crate::reconcile::engine::rbsr::RbsrEngine;
 use crate::reconcile::{
     codec, drive_initiator, drive_responder, Diff, MemorySource, ReconcileStream, Session,
-    SessionOpen,
+    SessionCost, SessionOpen,
 };
 
 /// Opens a session against a peer and runs it to convergence.
@@ -16,7 +16,7 @@ pub async fn initiate(
     stream: &mut (impl ReconcileStream + ?Sized),
     collection_id: &str,
     local: MemorySource,
-) -> Result<Diff> {
+) -> Result<(Diff, SessionCost)> {
     let open = codec::encode(&SessionOpen::new(collection_id)).map_err(reconcile_error)?;
     stream.send_frame(&open).await.map_err(reconcile_error)?;
 
@@ -39,12 +39,11 @@ pub async fn accept(stream: &mut (impl ReconcileStream + ?Sized)) -> Result<Stri
     Ok(open.collection().to_string())
 }
 
-/// Answers a peer's session until it closes the stream, returning the rounds
-/// served.
+/// Answers a peer's session until it closes the stream, returning what it cost.
 pub async fn serve(
     stream: &mut (impl ReconcileStream + ?Sized),
     local: MemorySource,
-) -> Result<usize> {
+) -> Result<SessionCost> {
     drive_responder(Session::new(RbsrEngine::responder(local)), stream)
         .await
         .map_err(reconcile_error)
