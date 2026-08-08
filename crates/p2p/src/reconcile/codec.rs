@@ -34,6 +34,8 @@ pub enum MessageKind {
     /// this yet, but the kind is allocated so an RBSR-only peer rejects it as a
     /// mismatch rather than as garbage.
     RibltSymbols = 2,
+    /// The frame naming the set a session is about to reconcile.
+    SessionOpen = 3,
 }
 
 impl MessageKind {
@@ -41,6 +43,7 @@ impl MessageKind {
         match tag {
             tag if tag == Self::RbsrRanges as u8 => Ok(Self::RbsrRanges),
             tag if tag == Self::RibltSymbols as u8 => Ok(Self::RibltSymbols),
+            tag if tag == Self::SessionOpen as u8 => Ok(Self::SessionOpen),
             other => Err(ReconcileError::UnknownMessageKind(other)),
         }
     }

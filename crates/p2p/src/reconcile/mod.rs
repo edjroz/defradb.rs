@@ -96,13 +96,19 @@
 //!   phase, not a phase-1 guess.
 
 pub mod codec;
+pub mod drive;
 pub mod engine;
 pub mod error;
+pub mod open;
 pub mod session;
 pub mod source;
+pub mod stream;
 
 pub use codec::{decode, encode, MessageKind, WireMessage, PROTOCOL_VERSION};
+pub use drive::{drive_initiator, drive_responder};
 pub use engine::{Diff, Engine, Progress};
 pub use error::{ReconcileError, Result};
+pub use open::SessionOpen;
 pub use session::Session;
 pub use source::{Bound, Item, ItemId, ItemSource, MemorySource, SortKey};
+pub use stream::ReconcileStream;

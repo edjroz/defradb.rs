@@ -79,4 +79,10 @@ pub enum ReconcileError {
     /// input).
     #[error("reconciliation codec error: {0}")]
     Codec(String),
+
+    /// The stream carrying the session failed, or the peer closed it before the
+    /// session finished. A session that loses its transport ends here rather
+    /// than waiting on a peer that will never answer.
+    #[error("reconciliation transport error: {0}")]
+    Transport(String),
 }
