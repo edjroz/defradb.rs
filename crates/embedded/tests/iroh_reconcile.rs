@@ -182,6 +182,32 @@ async fn nothing_moves_without_a_reconciliation() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_peer_that_goes_away_fails_the_session_instead_of_hanging() -> Result<()> {
+    let pair = Pair::connected().await?;
+    add_note(&pair.initiator, "shared").await?;
+    add_note(&pair.responder, "shared").await?;
+    add_note(&pair.responder, "diverged").await?;
+    pair.reconcile().await?;
+
+    p2p_of(&pair.responder)?.shutdown().await;
+
+    // The bound is the assertion: a session against a peer that is no longer
+    // there must return an error, not park on a read that will never complete.
+    let result = tokio::time::timeout(Duration::from_secs(30), pair.reconcile())
+        .await
+        .context("a session against a dead peer did not terminate")?;
+    assert!(result.is_err(), "a dead peer must fail the session");
+
+    // And the local node is still a working node afterwards.
+    assert!(has_note(&pair.initiator, "shared").await?);
+
+    p2p_of(&pair.initiator)?.shutdown().await;
+    pair.initiator.database.close().await?;
+    pair.responder.database.close().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_flag_off_node_refuses_a_session() -> Result<()> {
     let initiator = NodeBuilder::default()
         .with_iroh(test_iroh_config())
