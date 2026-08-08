@@ -106,20 +106,23 @@ impl NodePair {
         }
     }
 
+    /// Introduce the two nodes without subscribing either to the collection
+    /// topic, so [`Self::measure_pull`] measures the pull and nothing else.
+    ///
+    /// Subscribing here would put a gossip broadcast on the wire for every
+    /// document the writer touches, concurrently with the pull, and the
+    /// counters cannot tell the two apart: the recorded cost would be a pull
+    /// racing a push rather than the cost of reconciling. Documents do reach
+    /// an unsubscribed reader over `sync_documents` alone — that is what
+    /// `p2p_pull_tests::doc_sync_pull_delivers_documents_without_a_subscription`
+    /// pins.
     pub(crate) async fn connect(&self) {
         let writer_addr = listen_addr(&self.writer).await;
         let reader_p2p = self.reader.p2p().expect("reader p2p");
-        let writer_p2p = self.writer.p2p().expect("writer p2p");
 
         dial_with_retry(reader_p2p, &writer_addr).await;
         wait_for_peer(&self.writer).await;
         wait_for_peer(&self.reader).await;
-
-        for p2p in [writer_p2p, reader_p2p] {
-            p2p.add_collections(vec![COLLECTION.to_string()])
-                .await
-                .expect("subscribe collection");
-        }
     }
 
     pub(crate) fn reset_counters(&self) {
