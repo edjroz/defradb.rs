@@ -19,8 +19,8 @@ use embedded::NodeBuilder;
 use tokio::time::{sleep, Duration};
 
 use reconcile_support::{
-    add_note, connect, has_note, heads_missing_from, p2p_of, set, test_iroh_config, wait_for_note,
-    Pair, COLLECTION, NOTE_SDL,
+    add_note, connect, has_note, heads, heads_missing_from, p2p_of, set, test_iroh_config,
+    wait_for_note, Pair, COLLECTION, NOTE_SDL,
 };
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -126,27 +126,40 @@ async fn reconciling_while_writing_neither_deadlocks_nor_panics() -> Result<()> 
     }
     add_note(&pair.responder, "diverged").await?;
 
-    // Writes land on both sides while the session runs. A session reads a
-    // sealed snapshot, so these may or may not be in its result; what must hold
-    // is that the session finishes and a later session finds them.
-    let first = pair.reconcile().await?;
-    for index in 0..5 {
-        add_note(&pair.responder, &format!("concurrent-{index}")).await?;
-        add_note(&pair.initiator, &format!("local-{index}")).await?;
-    }
-    let _ = first;
+    // Both stores take writes for the whole life of the session. A session runs
+    // over a sealed snapshot, so whether any given write is in its result is
+    // timing; what must hold is that the session finishes at all, that it never
+    // claims to need something the peer does not have, and that re-running
+    // eventually settles.
+    let writes = async {
+        for index in 0..10 {
+            add_note(&pair.responder, &format!("concurrent-{index}")).await?;
+            add_note(&pair.initiator, &format!("local-{index}")).await?;
+        }
+        Ok::<(), anyhow::Error>(())
+    };
+    let (outcome, written) = tokio::join!(pair.reconcile(), writes);
+    written?;
+    let outcome = outcome?;
 
-    let outcome = pair.reconcile().await?;
-    let expected_need = heads_missing_from(&pair.initiator, &pair.responder).await?;
     assert!(
-        set(&outcome.need).is_subset(&expected_need) || outcome.need.is_empty(),
-        "a session must never claim to need something the peer does not have"
+        set(&outcome.need).is_subset(&heads(&pair.responder).await?),
+        "a session must never claim to need a head the peer does not hold"
     );
 
-    let settled = pair.reconcile().await?;
-    assert!(
-        settled.need.len() <= outcome.need.len(),
-        "successive sessions must not discover more, they converge"
+    // Eventual convergence on re-run, which is the documented contract when the
+    // store moves under a session.
+    let mut remaining = outcome.need.len();
+    for _ in 0..10 {
+        if remaining == 0 {
+            break;
+        }
+        sleep(Duration::from_millis(500)).await;
+        remaining = pair.reconcile().await?.need.len();
+    }
+    assert_eq!(
+        remaining, 0,
+        "successive sessions over a quiet store must reach a zero need set"
     );
 
     pair.shutdown().await
