@@ -8,4 +8,4 @@ mod session;
 mod source_provider;
 
 pub use session::{accept, initiate, serve};
-pub use source_provider::{EmptySourceProvider, ReconcileSourceProvider};
+pub use source_provider::ReconcileSourceProvider;

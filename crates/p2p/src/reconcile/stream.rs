@@ -80,18 +80,3 @@ impl ReconcileStream for MemoryStream {
         Ok(())
     }
 }
-
-#[async_trait]
-impl<S: ReconcileStream + ?Sized> ReconcileStream for Box<S> {
-    async fn send_frame(&mut self, frame: &[u8]) -> Result<()> {
-        (**self).send_frame(frame).await
-    }
-
-    async fn recv_frame(&mut self) -> Result<Option<Vec<u8>>> {
-        (**self).recv_frame().await
-    }
-
-    async fn finish(&mut self) -> Result<()> {
-        (**self).finish().await
-    }
-}

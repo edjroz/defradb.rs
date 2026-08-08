@@ -26,15 +26,3 @@ pub trait ReconcileSourceProvider: Send + Sync {
     /// set, not an error, so a peer cannot probe which collections exist.
     async fn snapshot(&self, collection_id: &str) -> Result<MemorySource>;
 }
-
-/// A provider holding nothing, so a node with no database wiring answers every
-/// session with an empty set rather than failing it.
-pub struct EmptySourceProvider;
-
-#[async_trait]
-impl ReconcileSourceProvider for EmptySourceProvider {
-    async fn snapshot(&self, _collection_id: &str) -> Result<MemorySource> {
-        MemorySource::new(Vec::new())
-            .map_err(|error| crate::error::Error::Transport(error.to_string()))
-    }
-}
