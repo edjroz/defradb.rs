@@ -23,9 +23,17 @@ use super::error::{ReconcileError, Result};
 ///
 /// A peer whose answers never converge — through malice or a bug — terminates
 /// the session with [`ReconcileError::RoundCapExceeded`] instead of looping
-/// forever. The value is the Go reference's `MaxRounds`; it lives here rather
-/// than beside the RBSR caps because it is session policy that applies to any
-/// engine.
+/// forever. The value and the off-by-one are the Go reference's `MaxRounds`:
+/// rounds 1 through 32 are served and the 33rd errors, with [`Session::rounds`]
+/// counting that failed round as Go's `Round()` does.
+///
+/// It lives here rather than beside the RBSR caps because it is session policy
+/// that applies to any engine — and, unlike Go, it therefore also bounds a
+/// *responding* session. Go's responder is a stateless free function with no cap
+/// at all, so a driver that ingests on the responder first will see the cap
+/// attributed to the responder where Go would attribute it to the initiator.
+/// That is a deliberate hardening: a stateless responder should not answer
+/// unbounded rounds from a hostile initiator either.
 pub const MAX_ROUNDS: usize = 32;
 
 /// One reconciliation session over one engine.
@@ -62,10 +70,10 @@ impl<E: Engine> Session<E> {
         if self.converged {
             return Err(ReconcileError::SessionClosed);
         }
-        if self.rounds >= MAX_ROUNDS {
+        self.rounds += 1;
+        if self.rounds > MAX_ROUNDS {
             return Err(ReconcileError::RoundCapExceeded { max: MAX_ROUNDS });
         }
-        self.rounds += 1;
 
         let progress = self.engine.ingest(message)?;
         if progress == Progress::Converged {
@@ -87,11 +95,6 @@ impl<E: Engine> Session<E> {
     /// The difference learned so far; complete once converged.
     pub fn diff(&self) -> &Diff {
         self.engine.diff()
-    }
-
-    /// Consumes the session, yielding the difference it learned.
-    pub fn into_diff(self) -> Diff {
-        self.engine.diff().clone()
     }
 }
 

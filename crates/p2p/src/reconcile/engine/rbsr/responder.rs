@@ -8,12 +8,17 @@
 //! - mismatch over at most [`ID_LIST_THRESHOLD`] items — list the window out;
 //! - larger mismatch — split into [`BRANCHING_FACTOR`] sub-ranges.
 //!
-//! The output tiles the same keyspace as the input. Once
-//! [`MAX_RANGES_PER_MESSAGE`] ranges have been produced, refinement of the rest
-//! is deferred to a later round by echoing an unsplit fingerprint, so no single
-//! message grows without bound.
+//! The output tiles the same keyspace as the input. Two caps keep a single
+//! message bounded — [`MAX_RANGES_PER_MESSAGE`] on how many ranges it carries and
+//! [`MAX_LISTED_ID_BYTES`] on how much identity payload they list. Hitting
+//! either defers refinement of the rest to a later round by echoing an unsplit
+//! fingerprint, which still makes progress because the ranges already settled
+//! come back as skips.
 
-use super::caps::{BRANCHING_FACTOR, ID_LIST_THRESHOLD, MAX_IDS_PER_RANGE, MAX_RANGES_PER_MESSAGE};
+use super::caps::{
+    BRANCHING_FACTOR, ID_LIST_THRESHOLD, MAX_IDS_PER_RANGE, MAX_LISTED_ID_BYTES,
+    MAX_RANGES_PER_MESSAGE,
+};
 use super::message::{Mode, Range, RbsrMessage};
 use super::segment_tree::SegmentTree;
 use crate::reconcile::error::{ReconcileError, Result};
@@ -25,6 +30,7 @@ pub(super) fn respond<S: ItemSource>(
     incoming: &RbsrMessage,
 ) -> Result<RbsrMessage> {
     let mut out: Vec<Range> = Vec::with_capacity(incoming.ranges().len());
+    let mut listed_bytes = 0usize;
     let mut lo = Bound::Min;
 
     for range in incoming.ranges() {
@@ -49,7 +55,13 @@ pub(super) fn respond<S: ItemSource>(
                 } else if out.len() >= MAX_RANGES_PER_MESSAGE {
                     out.push(Range::fingerprint(hi.clone(), mine));
                 } else if end - start <= ID_LIST_THRESHOLD {
-                    out.push(id_list(index, hi, start, end));
+                    let payload = id_bytes(index, start, end);
+                    if listed_bytes + payload > MAX_LISTED_ID_BYTES {
+                        out.push(Range::fingerprint(hi.clone(), mine));
+                    } else {
+                        listed_bytes += payload;
+                        out.push(id_list(index, hi, start, end));
+                    }
                 } else {
                     split(index, hi, start, end, &mut out);
                 }
@@ -60,6 +72,12 @@ pub(super) fn respond<S: ItemSource>(
     }
 
     Ok(RbsrMessage::new(out))
+}
+
+/// The identity payload listing `[start, end)` would cost.
+fn id_bytes<S: ItemSource>(index: &SegmentTree<S>, start: usize, end: usize) -> usize {
+    let source = index.source();
+    (start..end).map(|i| source.id(i).as_bytes().len()).sum()
 }
 
 /// Lists the window out. Only reached when the window holds at most
@@ -85,6 +103,10 @@ fn split<S: ItemSource>(
     out: &mut Vec<Range>,
 ) {
     let span = end - start;
+    debug_assert!(
+        span > ID_LIST_THRESHOLD,
+        "only windows too large to list are split, which keeps buckets non-zero"
+    );
     let buckets = BRANCHING_FACTOR.min(span);
 
     let mut bucket_start = start;

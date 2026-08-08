@@ -24,3 +24,16 @@ pub const MAX_IDS_PER_RANGE: usize = 64;
 /// responder defers refinement of the remaining keyspace to a later round rather
 /// than emitting an oversized message.
 pub const MAX_RANGES_PER_MESSAGE: usize = 1 << 14;
+
+/// Bound on the identity bytes a single response may list.
+///
+/// [`MAX_RANGES_PER_MESSAGE`] alone does not bound a message. The Go engine caps
+/// ranges and IDs-per-range but never enforces its frame cap, and the two cap
+/// sets are mutually inconsistent: 16384 ranges each listing 64 identities of 32
+/// bytes is 32 MiB of payload against a 16 MiB frame. Bounding the payload
+/// directly closes that, leaving the rest of the frame budget for range bounds
+/// and CBOR framing, which cost well under a megabyte even at the range cap.
+///
+/// A response that would exceed this defers the remaining refinement to a later
+/// round exactly as the range cap does, so the session still converges.
+pub const MAX_LISTED_ID_BYTES: usize = crate::reconcile::codec::MAX_FRAME_BYTES / 2;

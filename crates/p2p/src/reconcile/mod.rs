@@ -57,8 +57,12 @@
 //!    concrete `Initiator` plus a free `Respond` function. The trait exists so
 //!    the RIBLT engine can be dropped in without reworking the session loop; see
 //!    [`engine::Engine`] for the mapping.
-//! 5. **The round cap lives on the session, not the initiator.** Same value, same
-//!    fail-with-error behavior; it is session policy that applies to any engine.
+//! 5. **The round cap lives on the session, not the initiator.** Same value and
+//!    same off-by-one as Go, but because it is session policy it also bounds a
+//!    *responding* session, which Go's stateless `Respond` function does not.
+//!    A driver that ingests on the responder first therefore sees a stalled
+//!    session attributed to the responder where Go would attribute it to the
+//!    initiator. See [`session::MAX_ROUNDS`].
 //! 6. **Messages have a real wire encoding.** Go left its encoding undefined and
 //!    approximated message size with a per-element heuristic. [`codec`] defines a
 //!    versioned CBOR envelope, so sizes here are measured rather than estimated.
@@ -70,6 +74,18 @@
 //!    guarantees it when building a list; both sides here also reject an
 //!    incoming list that exceeds it, so a peer cannot make the local node
 //!    allocate past the cap.
+//! 9. **A response is capped by payload bytes as well as by range count.** Go's
+//!    cap set is internally inconsistent — 16384 ranges of 64 identities is 32
+//!    MiB against its declared 16 MiB frame — which is latent there only because
+//!    Go never enforces a frame cap. Having a real codec makes it reachable, so
+//!    [`engine::rbsr::caps::MAX_LISTED_ID_BYTES`] bounds the payload directly.
+//!
+//! One thing that is *not* protocol, and matters when comparing byte counts:
+//! `ciborium` encodes structs as maps with string keys, so every range pays for
+//! the literal field names and every mode and bound variant pays for its own
+//! name. That inflates a message by roughly 25 bytes per range against a compact
+//! representation. It is a serde representation choice, identical for whatever
+//! engine sits behind it, and it belongs to the deferred wire-format phase.
 //!
 //! ## Deferred, not deviated
 //!

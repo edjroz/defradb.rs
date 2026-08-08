@@ -101,6 +101,11 @@ fn a_peer_that_never_agrees_hits_the_round_cap() {
         session.ingest(0),
         Err(ReconcileError::RoundCapExceeded { max: MAX_ROUNDS })
     );
+    assert_eq!(
+        session.rounds(),
+        MAX_ROUNDS + 1,
+        "the failed round counts, as Go's Round() does"
+    );
 }
 
 #[test]
@@ -113,5 +118,4 @@ fn the_diff_survives_the_session() {
     session.ingest(0).expect("no error");
 
     assert_eq!(session.diff().need().len(), 1);
-    assert_eq!(session.into_diff().need().len(), 1);
 }

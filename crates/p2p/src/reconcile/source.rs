@@ -27,11 +27,6 @@ impl ItemId {
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
-
-    /// Unwraps into the raw identity bytes.
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.0
-    }
 }
 
 /// The total order the keyspace is tiled along: an 8-byte big-endian block
@@ -166,11 +161,6 @@ impl MemorySource {
             return Err(ReconcileError::DuplicateItem);
         }
         Ok(Self { items })
-    }
-
-    /// Borrows the sealed items in ascending key order.
-    pub fn items(&self) -> &[Item] {
-        &self.items
     }
 }
 

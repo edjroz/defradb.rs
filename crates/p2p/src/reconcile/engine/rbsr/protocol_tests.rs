@@ -2,16 +2,28 @@
 //! observable split and list heuristics, the byte-scaling claim, and the caps
 //! that keep a misbehaving peer bounded.
 
-use super::caps::{BRANCHING_FACTOR, ID_LIST_THRESHOLD, MAX_IDS_PER_RANGE, MAX_RANGES_PER_MESSAGE};
+use super::caps::{
+    BRANCHING_FACTOR, ID_LIST_THRESHOLD, MAX_IDS_PER_RANGE, MAX_LISTED_ID_BYTES,
+    MAX_RANGES_PER_MESSAGE,
+};
 use super::engine::{RbsrEngine, Role};
 use super::message::{Mode, Range, RbsrMessage};
 use super::segment_tree::SegmentTree;
 use super::simulate::{difference_sizes, diverged, id, ids, run, source};
 use super::{responder, Fingerprint};
+use crate::reconcile::codec::MAX_FRAME_BYTES;
 use crate::reconcile::engine::{Engine, Progress};
 use crate::reconcile::error::ReconcileError;
 use crate::reconcile::session::{Session, MAX_ROUNDS};
-use crate::reconcile::source::{Bound, ItemSource, MemorySource};
+use crate::reconcile::source::{Bound, Item, ItemId, ItemSource, MemorySource};
+
+/// A distinct identity of the given length, so a test can reach a byte cap
+/// without materializing hundreds of thousands of items.
+fn fat_id(seed: u64, len: usize) -> Vec<u8> {
+    let mut bytes = vec![0u8; len];
+    bytes[..8].copy_from_slice(&seed.to_be_bytes());
+    bytes
+}
 
 fn full_range_mismatch() -> RbsrMessage {
     RbsrMessage::new(vec![Range::fingerprint(
@@ -183,6 +195,56 @@ fn a_response_defers_refinement_rather_than_exceeding_the_range_cap() {
 }
 
 #[test]
+fn a_response_stays_inside_the_frame_cap_when_every_range_is_listed() {
+    // Capping ranges alone does not cap a message: MAX_RANGES_PER_MESSAGE lists
+    // of MAX_IDS_PER_RANGE 32-byte identities is 32 MiB against a 16 MiB frame.
+    // Fat identities reach the byte cap with few enough items to test cheaply,
+    // and nothing in the protocol constrains identity length.
+    const ID_LEN: usize = 1024;
+    let lists = MAX_FRAME_BYTES / (ID_LIST_THRESHOLD * ID_LEN) + 2;
+
+    let unconstrained = lists * ID_LIST_THRESHOLD * ID_LEN;
+    assert!(
+        unconstrained > MAX_FRAME_BYTES && MAX_LISTED_ID_BYTES < MAX_FRAME_BYTES,
+        "the scenario is only meaningful if listing everything would overflow"
+    );
+
+    let items = (0..(lists * ID_LIST_THRESHOLD) as u64)
+        .map(|seed| Item::new(0, ItemId::new(fat_id(seed, ID_LEN))));
+    let local = MemorySource::new(items).expect("distinct identities");
+    let index = SegmentTree::build(&local);
+
+    let mismatch = Fingerprint::of(std::iter::once(&id(u64::MAX)));
+    let mut incoming = Vec::with_capacity(lists);
+    for boundary in 1..lists {
+        let key = index.source().key(boundary * ID_LIST_THRESHOLD).clone();
+        incoming.push(Range::fingerprint(Bound::Key(key), mismatch));
+    }
+    incoming.push(Range::fingerprint(Bound::Max, mismatch));
+
+    let response = responder::respond(&index, &RbsrMessage::new(incoming)).expect("responds");
+
+    let listed = response
+        .ranges()
+        .iter()
+        .filter(|range| matches!(range.mode, Mode::IdList(_)))
+        .count();
+    let deferred = response.ranges().len() - listed;
+    assert!(listed > 0, "the responder still lists what it can afford");
+    assert!(
+        deferred > 0,
+        "the byte cap must defer the ranges that would overflow the frame"
+    );
+
+    let encoded = crate::reconcile::codec::encode(&response).expect("a capped response encodes");
+    assert!(
+        encoded.len() <= MAX_FRAME_BYTES,
+        "a full response must fit the frame: {} bytes",
+        encoded.len()
+    );
+}
+
+#[test]
 fn an_oversized_id_list_from_a_peer_is_rejected() {
     let oversized = RbsrMessage::new(vec![Range::id_list(
         Bound::Max,
@@ -252,7 +314,7 @@ fn a_peer_whose_fingerprints_never_agree_hits_the_round_cap() {
         Err(ReconcileError::RoundCapExceeded { max: MAX_ROUNDS }),
         "a peer that never agrees must terminate the session, not hang it"
     );
-    assert_eq!(session.rounds(), MAX_ROUNDS);
+    assert_eq!(session.rounds(), MAX_ROUNDS + 1);
 }
 
 /// Prints what a session actually costs across set sizes and difference sizes.
