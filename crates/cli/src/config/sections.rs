@@ -342,6 +342,13 @@ pub struct NetConfig {
     /// Max outbound push jobs concurrently in flight to one peer. Default: 4.
     #[serde(default = "default_max_active_pushes_per_peer")]
     pub p2p_max_active_pushes_per_peer: usize,
+    /// Enable experimental set reconciliation between peers. Default: false.
+    ///
+    /// A node with this off does not offer the reconciliation protocol to
+    /// peers and will not start a session of its own, so leaving it off is
+    /// indistinguishable from a build without the feature.
+    #[serde(default)]
+    pub p2p_reconcile_enabled: bool,
 }
 
 fn default_max_msg_size() -> u64 {
@@ -426,6 +433,7 @@ impl Default for NetConfig {
             p2p_push_queue_capacity: default_push_queue_capacity(),
             p2p_push_queue_byte_capacity: default_push_queue_byte_capacity(),
             p2p_max_active_pushes_per_peer: default_max_active_pushes_per_peer(),
+            p2p_reconcile_enabled: false,
         }
     }
 }

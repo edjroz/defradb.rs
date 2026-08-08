@@ -37,6 +37,7 @@ impl Node {
                 bind_addr: config.net.iroh_bind_addr,
                 max_concurrent_multipath_paths: config.net.iroh_max_concurrent_multipath_paths,
                 gossip_heal: p2p::iroh::GossipHealConfig::from_env(),
+                reconcile_enabled: config.net.p2p_reconcile_enabled,
             })
             .await
             .map_err(Error::P2P)?;
@@ -78,6 +79,11 @@ impl Node {
 
         let failure_rx = db_merge::attach_failure_channel(&mut coordinator, 1024);
         let coordinator = Arc::new(coordinator);
+        if config.net.p2p_reconcile_enabled {
+            coordinator.install_reconcile_source(Arc::new(db_merge::create_reconcile_source(
+                database.clone(),
+            )));
+        }
         coordinator
             .install_pending_dag_store(Arc::new(p2p::sync::PendingDagStore::new(store.clone())))
             .await;

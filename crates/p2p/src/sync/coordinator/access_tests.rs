@@ -266,7 +266,9 @@ fn create_test_coordinator_with_blockstore_and_head_provider<B: Blockstore + 'st
     ));
 
     let coordinator = SyncCoordinator {
+        reconcile_source: std::sync::OnceLock::new(),
         runtime: SyncRuntime {
+            reconcile_enabled: false,
             transport,
             broadcaster,
             failure_tx: Arc::new(parking_lot::Mutex::new(None)),

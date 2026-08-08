@@ -378,6 +378,9 @@ pub(super) struct SyncRuntime<T: P2PTransport> {
     /// Maximum document IDs accepted in a single DocSync request.
     pub(super) max_doc_sync_request_doc_ids: usize,
 
+    /// Whether set reconciliation sessions may run on this node.
+    pub(super) reconcile_enabled: bool,
+
     /// Shutdown state for coordinator-owned background tasks.
     pub(super) shutdown: SyncShutdownHandle,
 
@@ -446,6 +449,11 @@ pub struct SyncCoordinator<B: Blockstore, T: P2PTransport> {
     /// Optional document ACP used for local ACP relationship snapshot replay.
     pub(super) document_acp: std::sync::OnceLock<Arc<dyn DocumentACP>>,
 
+    /// Set reconciliation source. Installed by the node layer that knows how to
+    /// read the headstore; absent on a node that never reconciles.
+    pub(super) reconcile_source:
+        std::sync::OnceLock<Arc<dyn crate::sync::reconcile::ReconcileSourceProvider>>,
+
     /// KMS pubsub transport. Set by the embedded-node layer when a transport
     /// that supports raw gossip is in use. Left empty otherwise.
     #[cfg(feature = "libp2p-transport")]
@@ -460,6 +468,15 @@ pub struct SyncCoordinator<B: Blockstore, T: P2PTransport> {
 impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
     pub(crate) fn clear_pending_dag(&self, root_cid: &Cid) -> bool {
         self.manager.clear_pending_dag(root_cid)
+    }
+
+    /// Install the set reconciliation source. First-call-wins (OnceLock
+    /// semantics); subsequent calls are silently discarded.
+    pub fn install_reconcile_source(
+        &self,
+        provider: Arc<dyn crate::sync::reconcile::ReconcileSourceProvider>,
+    ) {
+        let _ = self.reconcile_source.set(provider);
     }
 
     /// Install the KMS pubsub transport. First-call-wins (OnceLock semantics);

@@ -7,6 +7,7 @@ mod doc_sync;
 mod gossip;
 mod pubsub_raw;
 mod pushlog;
+mod reconcile;
 
 use blockstore::Blockstore;
 use std::time::Duration;
@@ -395,6 +396,14 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
                 }
                 self.handle_doc_sync_request(peer_id, request, token)
                     .await?;
+            }
+            TransportEvent::ReconcileSession { peer_id, stream } => {
+                self.check_rate_limit(
+                    &self.runtime.request_rate_limiter,
+                    &peer_id,
+                    "ReconcileSession",
+                )?;
+                self.handle_reconcile_session(peer_id, stream).await?;
             }
             TransportEvent::DocSyncReply { peer_id, reply } => {
                 self.handle_doc_sync_reply(peer_id, reply).await?;

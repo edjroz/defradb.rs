@@ -195,6 +195,7 @@ impl Node {
             push_queue_capacity: config.net.p2p_push_queue_capacity,
             push_queue_byte_capacity: config.net.p2p_push_queue_byte_capacity,
             max_active_pushes_per_peer: config.net.p2p_max_active_pushes_per_peer,
+            reconcile_enabled: config.net.p2p_reconcile_enabled,
             ..Default::default()
         }
     }

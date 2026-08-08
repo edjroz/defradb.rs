@@ -194,6 +194,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
         let rate_limit_backoff = config.rate_limit_backoff.clone();
         let max_doc_sync_request_doc_ids =
             resolve_max_doc_sync_request_doc_ids(config.max_doc_sync_request_doc_ids);
+        let reconcile_enabled = config.reconcile_enabled;
         let push_send_timeout = if config.push_send_timeout.is_zero() {
             DEFAULT_PUSH_SEND_TIMEOUT
         } else {
@@ -254,6 +255,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
                         rate_limit_rate,
                     )),
                     max_doc_sync_request_doc_ids,
+                    reconcile_enabled,
                     shutdown,
                     filter_matcher,
                 },
@@ -274,6 +276,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
                 classifier,
                 serve_acp,
                 document_acp: std::sync::OnceLock::new(),
+                reconcile_source: std::sync::OnceLock::new(),
                 #[cfg(feature = "libp2p-transport")]
                 kms_transport: std::sync::OnceLock::new(),
                 #[cfg(feature = "libp2p-transport")]

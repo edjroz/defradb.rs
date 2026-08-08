@@ -25,6 +25,7 @@ pub(crate) mod push_encode_cache;
 pub(crate) mod push_fanout_coalescer;
 mod queue;
 pub(crate) mod rate_limiter;
+pub mod reconcile;
 mod replication;
 
 pub use broadcaster::{BroadcastResult, Broadcaster};
@@ -61,6 +62,7 @@ pub use push_backlog::{
     PushJobSpec, DEFAULT_PUSH_FAILURE_COOLDOWN_BASE,
 };
 pub use queue::ProcessQueue;
+pub use reconcile::{EmptySourceProvider, ReconcileSourceProvider};
 pub use replication::{recover_unmerged, ReplicationConfig, ReplicationLoop, ReplicationResult};
 
 /// Cadence for draining persisted push retries.

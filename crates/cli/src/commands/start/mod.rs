@@ -240,6 +240,10 @@ pub struct StartArgs {
     #[arg(long, env = "DEFRA_P2P_MAX_ACTIVE_PUSHES_PER_PEER")]
     pub p2p_max_active_pushes_per_peer: Option<usize>,
 
+    /// Enable experimental set reconciliation between peers. Default: false.
+    #[arg(long, env = "DEFRA_P2P_RECONCILE", num_args = 0..=1, require_equals = true, default_missing_value = "true", value_parser = crate::cli::bool_value_parser())]
+    pub p2p_reconcile: Option<bool>,
+
     /// P2P transport backend: "libp2p" (default) or "iroh"
     #[arg(long)]
     pub p2p_transport: Option<String>,
@@ -480,6 +484,9 @@ impl StartArgs {
         }
         if let Some(cap) = self.p2p_max_active_pushes_per_peer {
             config.net.p2p_max_active_pushes_per_peer = cap;
+        }
+        if let Some(reconcile) = self.p2p_reconcile {
+            config.net.p2p_reconcile_enabled = reconcile;
         }
         if let Some(ref transport) = self.p2p_transport {
             config.net.transport = transport.parse()?;

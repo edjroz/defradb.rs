@@ -121,6 +121,13 @@ pub struct SyncConfig {
     /// Values below 1 are normalized to 1 (a zero cap would reject every
     /// missing-link push forever).
     pub max_pending_dags: usize,
+
+    /// Whether this node runs set reconciliation sessions.
+    ///
+    /// Off by default. A node with this off neither initiates a session nor
+    /// serves one, and on the iroh transport it does not even offer the
+    /// reconciliation ALPN, so a peer is refused during the QUIC handshake.
+    pub reconcile_enabled: bool,
 }
 
 impl Default for SyncConfig {
@@ -138,6 +145,7 @@ impl Default for SyncConfig {
             rate_limit_backoff: default_rate_limit_backoff(),
             push_send_timeout: DEFAULT_PUSH_SEND_TIMEOUT,
             max_pending_dags: DEFAULT_MAX_PENDING_DAGS,
+            reconcile_enabled: false,
         }
     }
 }
