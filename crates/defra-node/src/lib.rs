@@ -1556,3 +1556,6 @@ mod p2p_pull_tests;
 
 #[cfg(all(test, feature = "p2p"))]
 mod p2p_tests;
+
+#[cfg(all(test, feature = "p2p"))]
+mod sync_bench;
