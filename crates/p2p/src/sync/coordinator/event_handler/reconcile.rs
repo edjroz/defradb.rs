@@ -6,13 +6,15 @@
 //! identity, which merge recovers from the genesis composite. Reconciliation
 //! therefore adds a way to *discover* what to fetch and nothing else.
 
+use std::sync::Arc;
+
 use blockstore::Blockstore;
 use cid::Cid;
 
 use super::super::dag_context::DagFetchContext;
 use super::super::SyncCoordinator;
 use crate::error::{Error, Result};
-use crate::reconcile::{Diff, ItemId, MemorySource, ReconcileStream};
+use crate::reconcile::{Diff, ItemId, ReconcileStream};
 use crate::sync::reconcile;
 use crate::transport::{P2PTransport, PeerId};
 
@@ -29,7 +31,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
     ) -> Result<Diff> {
         self.ensure_reconcile_enabled()?;
 
-        let local = self.reconcile_snapshot(collection_id).await?;
+        let local = self.reconcile_source()?.snapshot(collection_id).await?;
         let mut stream = self
             .runtime
             .transport
@@ -50,19 +52,30 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
     }
 
     /// Serves a session a peer opened.
+    ///
+    /// The whole session, including reading the peer's opening frame, runs on
+    /// its own task. Reading even that first frame on the transport's event
+    /// loop would let one peer that opens a stream and says nothing stall every
+    /// other event the node has to handle.
     pub(crate) async fn handle_reconcile_session(
         &self,
         peer_id: PeerId,
         mut stream: Box<dyn ReconcileStream>,
     ) -> Result<()> {
         self.ensure_reconcile_enabled()?;
-
-        let collection_id = reconcile::accept(stream.as_mut()).await?;
-        let local = self.reconcile_snapshot(&collection_id).await?;
+        let source = self.reconcile_source()?;
 
         self.spawn_background_task("reconcile_serve_session", async move {
-            match reconcile::serve(stream.as_mut(), local).await {
-                Ok(rounds) => tracing::debug!(
+            let served = async {
+                let collection_id = reconcile::accept(stream.as_mut()).await?;
+                let local = source.snapshot(&collection_id).await?;
+                let rounds = reconcile::serve(stream.as_mut(), local).await?;
+                Ok::<_, Error>((collection_id, rounds))
+            }
+            .await;
+
+            match served {
+                Ok((collection_id, rounds)) => tracing::debug!(
                     peer_id = %peer_id,
                     collection_id = %collection_id,
                     rounds,
@@ -70,7 +83,6 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
                 ),
                 Err(error) => tracing::debug!(
                     peer_id = %peer_id,
-                    collection_id = %collection_id,
                     error = %error,
                     "Reconciliation session ended"
                 ),
@@ -88,13 +100,10 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
         ))
     }
 
-    async fn reconcile_snapshot(&self, collection_id: &str) -> Result<MemorySource> {
-        match self.reconcile_source.get() {
-            Some(provider) => provider.snapshot(collection_id).await,
-            None => Err(Error::Transport(
-                "no reconciliation source is installed on this node".to_string(),
-            )),
-        }
+    fn reconcile_source(&self) -> Result<Arc<dyn crate::sync::reconcile::ReconcileSourceProvider>> {
+        self.reconcile_source.get().cloned().ok_or_else(|| {
+            Error::Transport("no reconciliation source is installed on this node".to_string())
+        })
     }
 
     /// Hands the need set to the DAG fetch path, one fetch per head.
