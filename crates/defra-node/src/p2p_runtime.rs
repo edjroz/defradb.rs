@@ -204,14 +204,19 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
         max_pending_dags: config.max_pending_dags,
         ..Default::default()
     };
+    // Without a real head provider every DocSync reply carries zero heads, so
+    // a pull silently delivers nothing and only the push paths converge.
+    let head_provider: Arc<dyn p2p::sync::DocumentHeadProvider> =
+        Arc::new(db_merge::create_head_provider(database.clone()));
     let (mut coordinator, sync_events) =
-        p2p::sync::SyncCoordinator::with_access_control_and_serve_gate(
+        p2p::sync::SyncCoordinator::with_head_provider_and_serve_gate(
             transport.clone(),
             sync_blockstore.clone(),
             sync_config,
             p2p::AccessMode::Controlled,
             replicator_registry,
             collection_store,
+            head_provider,
             Arc::new(replication_filter::QueryReplicationFilterMatcher::new()),
             classifier,
             serve_acp.clone(),

@@ -8,7 +8,7 @@ use serde_json::Value as JsonValue;
 
 use super::{EmbeddedNode, P2PConfig};
 
-fn init_tracing() {
+pub(crate) fn init_tracing() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         let filter = tracing_subscriber::EnvFilter::from_default_env()
@@ -30,7 +30,7 @@ fn init_tracing() {
     });
 }
 
-fn test_p2p_config() -> P2PConfig {
+pub(crate) fn test_p2p_config() -> P2PConfig {
     P2PConfig {
         port: 0,
         bind_addr: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
@@ -83,7 +83,7 @@ async fn build_persistent_p2p_node(data_path: PathBuf, secret_key_path: PathBuf)
         .expect("build persistent P2P node")
 }
 
-async fn wait_for_listen_addr(node: &EmbeddedNode) -> String {
+pub(crate) async fn wait_for_listen_addr(node: &EmbeddedNode) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let addrs = node
@@ -103,7 +103,7 @@ async fn wait_for_listen_addr(node: &EmbeddedNode) -> String {
     }
 }
 
-async fn wait_for_connected_peer(node: &EmbeddedNode) {
+pub(crate) async fn wait_for_connected_peer(node: &EmbeddedNode) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let peers = node
