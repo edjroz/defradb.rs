@@ -49,7 +49,7 @@
 //!    byte-wise transcription of Go's `acc256.addInto`.
 //! 3. **`ItemSource` is the ordered-item seam only.** Go's `Storage` interface
 //!    also owned range fingerprints; here those live in
-//!    `engine::rbsr::SegmentTree` on top of the source, because a RIBLT engine
+//!    [`engine::rbsr::SegmentTree`] on top of the source, because a RIBLT engine
 //!    needs to enumerate items but has no use for range fingerprints.
 //! 4. **`Engine` and `Session` are abstractions Go does not have.** Go exposes a
 //!    concrete `Initiator` plus a free `Respond` function. The trait exists so

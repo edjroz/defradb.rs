@@ -2,7 +2,7 @@
 //! observable split and list heuristics, the byte-scaling claim, and the caps
 //! that keep a misbehaving peer bounded.
 
-use super::caps::{BRANCHING_FACTOR, ID_LIST_THRESHOLD, MAX_IDS_PER_RANGE};
+use super::caps::{BRANCHING_FACTOR, ID_LIST_THRESHOLD, MAX_IDS_PER_RANGE, MAX_RANGES_PER_MESSAGE};
 use super::engine::{RbsrEngine, Role};
 use super::message::{Mode, Range, RbsrMessage};
 use super::segment_tree::SegmentTree;
@@ -147,6 +147,39 @@ fn split_buckets_are_evenly_sized() {
         assert_eq!(end - start, 100, "1600 items across 16 buckets");
         lo = range.upper_bound.clone();
     }
+}
+
+#[test]
+fn a_response_defers_refinement_rather_than_exceeding_the_range_cap() {
+    // Every incoming range is one item past the ID-list threshold, so each one
+    // the responder refines costs a full sixteen-way split. Enough of them and
+    // the frame guard has to start deferring.
+    let splits = MAX_RANGES_PER_MESSAGE / BRANCHING_FACTOR;
+    let per_range = ID_LIST_THRESHOLD as u64 + 1;
+    let local = source(0..(splits as u64 + 1) * per_range);
+    let index = SegmentTree::build(&local);
+
+    let mismatch = Fingerprint::of(std::iter::once(&id(u64::MAX)));
+    let mut incoming = Vec::with_capacity(splits + 1);
+    for boundary in 1..=splits {
+        let key = index.source().key(boundary * per_range as usize).clone();
+        incoming.push(Range::fingerprint(Bound::Key(key), mismatch));
+    }
+    incoming.push(Range::fingerprint(Bound::Max, mismatch));
+
+    let response = responder::respond(&index, &RbsrMessage::new(incoming)).expect("responds");
+
+    assert_eq!(
+        response.ranges().len(),
+        MAX_RANGES_PER_MESSAGE + 1,
+        "the guard stops splitting once the cap is reached"
+    );
+    let deferred = response.ranges().last().expect("a final range");
+    assert_eq!(deferred.upper_bound, Bound::Max);
+    assert!(
+        matches!(deferred.mode, Mode::Fingerprint(_)),
+        "the deferred range is echoed unsplit for a later round"
+    );
 }
 
 #[test]
