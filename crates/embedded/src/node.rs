@@ -308,6 +308,13 @@ impl NodeBuilder {
         self
     }
 
+    /// Enable experimental set reconciliation between peers. Opt-in; off by
+    /// default.
+    pub fn with_reconcile(mut self) -> Self {
+        self.config.reconcile_enabled = true;
+        self
+    }
+
     /// Enable transparent at-rest value encryption for the storage backend,
     /// keyed by the given 32-byte AES-256 key. Opt-in; off by default.
     pub fn with_at_rest_encryption_key(mut self, key: [u8; 32]) -> Self {
@@ -522,6 +529,7 @@ where
         rate_limit_rate: config
             .rate_limit_rate
             .unwrap_or(p2p::sync::DEFAULT_RATE_LIMIT_RATE),
+        reconcile_enabled: config.reconcile_enabled,
         ..Default::default()
     };
 

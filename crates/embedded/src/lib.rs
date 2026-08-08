@@ -4,6 +4,8 @@ mod node_identity;
 mod node_p2p;
 mod node_recovery;
 mod node_tasks;
+#[cfg(feature = "iroh")]
+pub mod reconcile_ops;
 
 use std::sync::Arc;
 
@@ -114,6 +116,8 @@ pub struct EmbeddedNodeConfig {
     pub max_doc_sync_request_doc_ids: Option<usize>,
     pub rate_limit_burst: Option<u32>,
     pub rate_limit_rate: Option<f64>,
+    /// Enable experimental set reconciliation between peers. Off by default.
+    pub reconcile_enabled: bool,
 }
 
 /// Runtime P2P transport kind.
@@ -136,6 +140,9 @@ pub struct ManagedP2PSystem {
     /// P2P-only peers on behalf of an HTTP caller. Set once during P2P setup
     /// (after the system is built), consumed when wiring `AppState`.
     manage_requester: std::sync::OnceLock<Arc<dyn defra_http::ManageRequester>>,
+    /// Set reconciliation handle. Present only when the node opted in.
+    #[cfg(feature = "iroh")]
+    reconciler: std::sync::OnceLock<Arc<dyn reconcile_ops::ReconcileOperations>>,
     shutdown: node::ShutdownHandle,
 }
 
@@ -182,6 +189,8 @@ impl ManagedP2PSystem {
             on_replicator_push_options,
             retry_replicators: std::sync::OnceLock::new(),
             manage_requester: std::sync::OnceLock::new(),
+            #[cfg(feature = "iroh")]
+            reconciler: std::sync::OnceLock::new(),
             shutdown,
         }
     }
@@ -192,6 +201,18 @@ impl ManagedP2PSystem {
     }
 
     /// Get the outbound management requester, if installed.
+    /// Install the set reconciliation handle. First-call-wins.
+    #[cfg(feature = "iroh")]
+    pub fn set_reconciler(&self, reconciler: Arc<dyn reconcile_ops::ReconcileOperations>) {
+        let _ = self.reconciler.set(reconciler);
+    }
+
+    /// The set reconciliation handle, absent when the node did not opt in.
+    #[cfg(feature = "iroh")]
+    pub fn reconciler(&self) -> Option<&Arc<dyn reconcile_ops::ReconcileOperations>> {
+        self.reconciler.get()
+    }
+
     pub fn manage_requester(&self) -> Option<&Arc<dyn defra_http::ManageRequester>> {
         self.manage_requester.get()
     }

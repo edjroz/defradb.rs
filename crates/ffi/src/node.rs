@@ -256,6 +256,7 @@ fn resolve_embedded_config(
         } else {
             None
         },
+        reconcile_enabled: false,
     })
 }
 

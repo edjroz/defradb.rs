@@ -413,6 +413,7 @@ where
     use crate::node_recovery::{restore_iroh_documents, restore_iroh_replicators};
     use crate::node_tasks::{spawn_iroh_event_handler, spawn_iroh_retry_loop};
 
+    let reconcile_enabled = sync_config.reconcile_enabled;
     let secret_key =
         p2p::iroh::load_or_generate_secret_key(config.secret_key_path.as_deref()).await?;
     let iroh_config = p2p::iroh::IrohEndpointConfig {
@@ -423,6 +424,7 @@ where
         bind_addr: config.bind_addr,
         max_concurrent_multipath_paths: config.max_concurrent_multipath_paths,
         gossip_heal: p2p::iroh::GossipHealConfig::from_env(),
+        reconcile_enabled: sync_config.reconcile_enabled,
     };
     let (command_tx, event_rx, replicator_registry, endpoint_task) =
         p2p::iroh::spawn_endpoint(iroh_config)
@@ -455,6 +457,11 @@ where
 
     let failure_rx = db_merge::attach_failure_channel(&mut coordinator, 1024);
     let coordinator = Arc::new(coordinator);
+    if reconcile_enabled {
+        coordinator.install_reconcile_source(Arc::new(db_merge::create_reconcile_source(
+            database.clone(),
+        )));
+    }
     coordinator
         .install_pending_dag_store(Arc::new(p2p::sync::PendingDagStore::new(store.clone())))
         .await;
@@ -613,6 +620,12 @@ where
             manage_query_correlator.clone(),
         ),
     ));
+
+    if reconcile_enabled {
+        system.set_reconciler(Arc::new(crate::reconcile_ops::CoordinatorReconciler::new(
+            coordinator.clone(),
+        )));
+    }
 
     Ok(P2PSetup {
         system,
