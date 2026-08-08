@@ -16,7 +16,8 @@
 use std::path::PathBuf;
 
 use super::csv::{self, MeasurementRow};
-use super::harness::{apply_updates, seed_docs, NodePair};
+use super::documents::{apply_updates, seed_docs};
+use super::harness::NodePair;
 use super::scenario::DivergenceFixture;
 
 /// Fixed so every recorded row is reproducible.

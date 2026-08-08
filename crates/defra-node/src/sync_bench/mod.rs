@@ -8,5 +8,6 @@
 
 mod baseline;
 mod csv;
+mod documents;
 mod harness;
 mod scenario;

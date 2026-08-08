@@ -1,19 +1,14 @@
 //! A metered two-node pair and the primitives a scenario drives it with.
 
-use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use p2p::metrics::TransportCounters;
-use serde_json::Value as JsonValue;
 
 use super::csv::MeasurementRow;
-use super::scenario::DivergenceFixture;
+use super::documents::{block_stats, doc_values, COLLECTION, SDL};
 use crate::{EmbeddedNode, P2PConfig};
-
-const SDL: &str = "type BenchDoc { name: String value: Int }";
-const COLLECTION: &str = "BenchDoc";
 
 /// Overall budget for one scenario's convergence, across all rounds.
 const CONVERGENCE_TIMEOUT: Duration = Duration::from_secs(900);
@@ -33,6 +28,13 @@ const NO_PROGRESS_BUDGET: Duration = Duration::from_secs(400);
 
 /// Upper bound on how long one round waits for the reader to catch up.
 const ROUND_SETTLE: Duration = Duration::from_secs(20);
+
+/// Dial attempts before a scenario is abandoned.
+///
+/// A sweep builds one node pair per size in the same process, and a later dial
+/// can time out even though the endpoint is healthy. Losing the whole sweep to
+/// one timeout costs more than retrying does.
+const DIAL_ATTEMPTS: u32 = 3;
 
 /// How long the divergent set must hold steady before a round is considered
 /// finished. `sync_documents` already waits for its own merges, so this only
@@ -109,10 +111,7 @@ impl NodePair {
         let reader_p2p = self.reader.p2p().expect("reader p2p");
         let writer_p2p = self.writer.p2p().expect("writer p2p");
 
-        reader_p2p
-            .connect_peer(&writer_addr)
-            .await
-            .expect("connect reader -> writer");
+        dial_with_retry(reader_p2p, &writer_addr).await;
         wait_for_peer(&self.writer).await;
         wait_for_peer(&self.reader).await;
 
@@ -254,6 +253,22 @@ async fn build_node(counters: Arc<TransportCounters>) -> EmbeddedNode {
     node
 }
 
+/// Dial `addr`, retrying a timeout a few times before giving up.
+async fn dial_with_retry(p2p: &dyn defra_http::P2POperations, addr: &str) {
+    let mut last_error = None;
+    for attempt in 1..=DIAL_ATTEMPTS {
+        match p2p.connect_peer(addr).await {
+            Ok(()) => return,
+            Err(error) => {
+                println!("  dial attempt {attempt} failed: {error}");
+                last_error = Some(error);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+    panic!("connect reader -> writer failed after {DIAL_ATTEMPTS} attempts: {last_error:?}");
+}
+
 async fn listen_addr(node: &EmbeddedNode) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -286,97 +301,4 @@ async fn wait_for_peer(node: &EmbeddedNode) {
         assert!(Instant::now() < deadline, "node never saw a peer");
         tokio::time::sleep(POLL_INTERVAL).await;
     }
-}
-
-/// Write the fixture's seed documents and return their doc IDs in fixture
-/// order.
-pub(crate) async fn seed_docs(node: &EmbeddedNode, fixture: &DivergenceFixture) -> Vec<String> {
-    let mut doc_ids = Vec::with_capacity(fixture.docs.len());
-    for doc in &fixture.docs {
-        let response = node
-            .execute(&format!(
-                r#"mutation {{ add_BenchDoc(input: {{name: "{}", value: {}}}) {{ _docID }} }}"#,
-                doc.name, doc.value
-            ))
-            .await;
-        doc_ids.push(created_doc_id(&response.data, &response.errors));
-    }
-    doc_ids
-}
-
-/// Apply the fixture's writer-only updates.
-pub(crate) async fn apply_updates(
-    node: &EmbeddedNode,
-    doc_ids: &[String],
-    fixture: &DivergenceFixture,
-) {
-    for update in &fixture.updates {
-        let response = node
-            .execute(&format!(
-                r#"mutation {{ update_BenchDoc(docID: "{}", input: {{value: {}}}) {{ _docID }} }}"#,
-                doc_ids[update.doc_index], update.value
-            ))
-            .await;
-        assert!(
-            response.errors.is_empty(),
-            "update failed: {:?}",
-            response.errors
-        );
-    }
-}
-
-fn created_doc_id(data: &Option<JsonValue>, errors: &[impl std::fmt::Debug]) -> String {
-    assert!(errors.is_empty(), "mutation failed: {errors:?}");
-    data.as_ref()
-        .and_then(|d| d.get("add_BenchDoc"))
-        .and_then(|v| v.as_array())
-        .and_then(|docs| docs.first())
-        .and_then(|doc| doc.get("_docID"))
-        .and_then(|id| id.as_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| panic!("mutation returned no _docID: {data:?}"))
-}
-
-/// The node's document set as `docID -> value`, the basis for `stateMatch`.
-async fn doc_values(node: &EmbeddedNode) -> BTreeMap<String, i64> {
-    let response = node
-        .execute(&format!("query {{ {COLLECTION} {{ _docID value }} }}"))
-        .await;
-    assert!(
-        response.errors.is_empty(),
-        "state query failed: {:?}",
-        response.errors
-    );
-    response
-        .data
-        .as_ref()
-        .and_then(|data| data.get(COLLECTION))
-        .and_then(|docs| docs.as_array())
-        .map(|docs| {
-            docs.iter()
-                .filter_map(|doc| {
-                    let id = doc.get("_docID")?.as_str()?.to_string();
-                    let value = doc.get("value")?.as_i64()?;
-                    Some((id, value))
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Converged blockstore size, the same state measure the Go harness reported.
-async fn block_stats(node: &EmbeddedNode) -> (u64, u64) {
-    let Some(blockstore) = node.p2p_blockstore() else {
-        return (0, 0);
-    };
-    let cids = blockstore.all_cids().await.expect("all_cids");
-    let mut bytes = 0u64;
-    for cid in &cids {
-        bytes += blockstore
-            .get_size(cid)
-            .await
-            .expect("get_size")
-            .unwrap_or(0) as u64;
-    }
-    (cids.len() as u64, bytes)
 }
