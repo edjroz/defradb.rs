@@ -12,11 +12,13 @@ use iroh::SecretKey;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::{Error, Result};
+use crate::iroh::protocols;
 use crate::message::{
     BranchableSyncReply, BranchableSyncRequest, DocSyncReply, DocSyncRequest, ManageQueryReply,
     ManageQueryRequest, ManageReply, ManageRequest, PushLogBroadcast, PushLogReply, PushLogRequest,
     PushSEArtifactsRequest, QuerySEArtifactsReply, QuerySEArtifactsRequest,
 };
+use crate::metrics::TransportCounters;
 use crate::replicator::ReplicatorInfo;
 use crate::signing::sign_with_transport;
 use crate::topics::DefraTopic;
@@ -36,11 +38,26 @@ pub struct IrohTransport {
     local_peer_id: PeerId,
     local_public_key_bytes: Vec<u8>,
     secret_key: Arc<SecretKey>,
+    counters: Option<Arc<TransportCounters>>,
 }
 
 impl IrohTransport {
     /// Create a new `IrohTransport` with the given command channel and identity.
     pub fn new(command_tx: mpsc::Sender<IrohCommand>, secret_key: SecretKey) -> Self {
+        Self::new_metered(command_tx, secret_key, None)
+    }
+
+    /// [`IrohTransport::new`] with per-protocol traffic counting.
+    ///
+    /// The transport writes CAR response bodies straight to the caller's
+    /// stream rather than through the endpoint task, so it needs its own
+    /// counter handle to attribute them. `counters` is `None` for production
+    /// nodes.
+    pub fn new_metered(
+        command_tx: mpsc::Sender<IrohCommand>,
+        secret_key: SecretKey,
+        counters: Option<Arc<TransportCounters>>,
+    ) -> Self {
         let node_id = secret_key.public();
         let local_peer_id = PeerId::new(node_id.to_string());
         let local_public_key_bytes = node_id.as_bytes().to_vec();
@@ -50,6 +67,7 @@ impl IrohTransport {
             local_peer_id,
             local_public_key_bytes,
             secret_key: Arc::new(secret_key),
+            counters,
         }
     }
 
@@ -325,6 +343,8 @@ impl P2PTransport for IrohTransport {
         send_stream
             .finish()
             .map_err(|e| Error::ResponseSend(format!("finish CAR stream: {}", e)))?;
+        protocols::Meter::payload(self.counters.as_ref(), protocols::ALPN_CAR_RESP)
+            .record_raw_sent(car_data.len());
         Ok(())
     }
 
@@ -518,11 +538,12 @@ mod tests {
 
     use tokio::time::timeout;
 
-    use crate::iroh::{spawn_endpoint, IrohDiscoveryConfig, IrohEndpointConfig};
+    use crate::iroh::{protocols, spawn_endpoint, IrohDiscoveryConfig, IrohEndpointConfig};
     use crate::message::{
         PushSEArtifactsRequest, QuerySEArtifactsReply, QuerySEArtifactsRequest, SEArtifact,
         SEFieldQuery,
     };
+    use crate::metrics::TransportCounters;
     use crate::signing::sign_with_transport;
     use crate::transport::{P2PTransport, TransportEvent};
 
@@ -539,6 +560,77 @@ mod tests {
             gossip_heal: Default::default(),
             reconcile_enabled: false,
         }
+    }
+
+    async fn localhost_endpoint(alpns: Vec<Vec<u8>>) -> iroh::Endpoint {
+        iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
+            .relay_mode(iroh::RelayMode::Disabled)
+            .alpns(alpns)
+            .bind_addr("127.0.0.1:0".parse::<std::net::SocketAddr>().unwrap())
+            .expect("bind addr")
+            .bind()
+            .await
+            .expect("bind endpoint")
+    }
+
+    /// A CAR body is the only payload traffic iroh moves, and the requester
+    /// meters it on arrival. Leaving the responder's write unmetered makes
+    /// `payload_bytes_sent` structurally zero, so the two ends can never be
+    /// compared. Both directions must see the same byte count.
+    #[tokio::test]
+    async fn car_response_body_is_metered_on_both_ends() {
+        let responder_ep = localhost_endpoint(vec![protocols::ALPN_CAR.to_vec()]).await;
+        let requester_ep = localhost_endpoint(vec![]).await;
+        let addr = responder_ep.addr();
+        let car_data = vec![7u8; 4096];
+
+        let responder_counters = TransportCounters::new();
+        let responder = tokio::spawn({
+            let endpoint = responder_ep.clone();
+            let counters = Arc::clone(&responder_counters);
+            let car_data = car_data.clone();
+            async move {
+                let conn = endpoint
+                    .accept()
+                    .await
+                    .expect("incoming")
+                    .await
+                    .expect("connection");
+                let (send, _recv) = conn.accept_bi().await.expect("accept_bi");
+                let (command_tx, _command_rx) = mpsc::channel(1);
+                let transport =
+                    IrohTransport::new_metered(command_tx, SecretKey::generate(), Some(counters));
+                transport
+                    .send_car_response_token(send, car_data)
+                    .await
+                    .expect("send CAR response");
+                conn
+            }
+        });
+
+        let conn = requester_ep
+            .connect(addr, protocols::ALPN_CAR)
+            .await
+            .expect("connect");
+        let (mut send, mut recv) = conn.open_bi().await.expect("open_bi");
+        send.write_all(b"car request").await.expect("write request");
+        send.finish().expect("finish request");
+        let received = recv
+            .read_to_end(protocols::MAX_CAR_SIZE)
+            .await
+            .expect("read CAR body");
+
+        let requester_counters = TransportCounters::new();
+        protocols::Meter::payload(Some(&requester_counters), protocols::ALPN_CAR_RESP)
+            .record_raw_recv(received.len());
+
+        responder.await.expect("responder task");
+
+        assert_eq!(received, car_data);
+        let sent = responder_counters.snapshot();
+        let read = requester_counters.snapshot();
+        assert_eq!(sent.payload_bytes_sent(), car_data.len() as u64);
+        assert_eq!(read.payload_bytes_recv(), sent.payload_bytes_sent());
     }
 
     #[tokio::test]

@@ -119,4 +119,7 @@ pub struct P2PConfig {
     /// links; overflow is nacked back to the pusher. Each source peer may use
     /// at most one quarter of this capacity. Default: 1000.
     pub max_pending_dags: usize,
+    /// Per-protocol application traffic counters for the iroh endpoint. `None`
+    /// disables counting.
+    pub counters: Option<std::sync::Arc<p2p::metrics::TransportCounters>>,
 }

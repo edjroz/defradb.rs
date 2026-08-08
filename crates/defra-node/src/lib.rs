@@ -119,6 +119,9 @@ pub struct EmbeddedNode {
     p2p_ops: Option<Arc<dyn defra_http::P2POperations>>,
     #[cfg(feature = "p2p")]
     p2p_lifecycle: Option<p2p_runtime::P2PLifecycle>,
+    #[cfg(feature = "p2p")]
+    #[cfg_attr(not(test), allow(dead_code))]
+    p2p_blockstore: Option<Arc<dyn blockstore::Blockstore>>,
     #[cfg(feature = "otel")]
     telemetry: std::sync::Mutex<Option<TelemetryHandle>>,
 }
@@ -348,6 +351,13 @@ impl EmbeddedNode {
     #[cfg(feature = "p2p")]
     pub fn p2p(&self) -> Option<&dyn defra_http::P2POperations> {
         self.p2p_ops.as_deref()
+    }
+
+    /// The blockstore backing P2P replication, for benchmarks that report
+    /// converged block counts and sizes.
+    #[cfg(all(test, feature = "p2p"))]
+    pub(crate) fn p2p_blockstore(&self) -> Option<&Arc<dyn blockstore::Blockstore>> {
+        self.p2p_blockstore.as_ref()
     }
 
     /// Cloneable P2P operations handle for background tasks.
@@ -1248,9 +1258,9 @@ impl NodeBuilder {
         ));
 
         #[cfg(feature = "p2p")]
-        let (p2p_ops, p2p_lifecycle) = match p2p_result {
-            Some(result) => (Some(result.ops), result.lifecycle),
-            None => (None, None),
+        let (p2p_ops, p2p_lifecycle, p2p_blockstore) = match p2p_result {
+            Some(result) => (Some(result.ops), result.lifecycle, Some(result.blockstore)),
+            None => (None, None, None),
         };
 
         Ok(EmbeddedNode {
@@ -1269,6 +1279,8 @@ impl NodeBuilder {
             p2p_ops,
             #[cfg(feature = "p2p")]
             p2p_lifecycle,
+            #[cfg(feature = "p2p")]
+            p2p_blockstore,
             #[cfg(feature = "otel")]
             telemetry: std::sync::Mutex::new(telemetry_handle),
         })
@@ -1552,4 +1564,10 @@ mod tests {
 }
 
 #[cfg(all(test, feature = "p2p"))]
+mod p2p_pull_tests;
+
+#[cfg(all(test, feature = "p2p"))]
 mod p2p_tests;
+
+#[cfg(all(test, feature = "p2p"))]
+mod sync_bench;

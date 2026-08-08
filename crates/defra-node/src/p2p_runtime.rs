@@ -155,6 +155,7 @@ pub(super) struct P2PSetupResult {
     pub(super) mutator: Arc<dyn query::DocMutator>,
     pub(super) wire_document_acp: Option<WireDocumentAcpCallback>,
     pub(super) txn_broadcaster: Arc<dyn db::event_emission::TxnBroadcaster>,
+    pub(super) blockstore: Arc<dyn blockstore::Blockstore>,
 }
 
 pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
@@ -178,15 +179,17 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
         gossip_heal: p2p::iroh::GossipHealConfig::from_env(),
     };
     let (command_tx, iroh_events, replicator_registry, endpoint_task) =
-        p2p::iroh::spawn_endpoint(iroh_config)
+        p2p::iroh::spawn_endpoint_metered(iroh_config, config.counters.clone())
             .await
             .map_err(|e| anyhow::anyhow!("IROH endpoint spawn failed: {}", e))?;
 
     // 3. Create IROH transport facade
-    let transport = p2p::iroh::IrohTransport::new(command_tx, secret_key);
+    let transport =
+        p2p::iroh::IrohTransport::new_metered(command_tx, secret_key, config.counters.clone());
 
     // 5. Blockstore for sync coordinator + merge handler
     let sync_blockstore = Arc::new(blockstore::DefraBlockstore::new(store.clone(), true));
+    let blockstore_for_stats: Arc<dyn blockstore::Blockstore> = sync_blockstore.clone();
     let classifier = defra_p2p_adapter::DbBlockClassifier::new_arc(database.clone());
     let serve_acp = Arc::new(p2p::bitswap::LateBoundServeAcp::new());
 
@@ -204,14 +207,19 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
         max_pending_dags: config.max_pending_dags,
         ..Default::default()
     };
+    // Without a real head provider every DocSync reply carries zero heads, so
+    // a pull silently delivers nothing and only the push paths converge.
+    let head_provider: Arc<dyn p2p::sync::DocumentHeadProvider> =
+        Arc::new(db_merge::create_head_provider(database.clone()));
     let (mut coordinator, sync_events) =
-        p2p::sync::SyncCoordinator::with_access_control_and_serve_gate(
+        p2p::sync::SyncCoordinator::with_head_provider_and_serve_gate(
             transport.clone(),
             sync_blockstore.clone(),
             sync_config,
             p2p::AccessMode::Controlled,
             replicator_registry,
             collection_store,
+            head_provider,
             Arc::new(replication_filter::QueryReplicationFilterMatcher::new()),
             classifier,
             serve_acp.clone(),
@@ -345,6 +353,7 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
             broadcast_mutator_for_acp.set_document_acp(acp);
         })),
         txn_broadcaster: replication.txn_broadcaster,
+        blockstore: blockstore_for_stats,
     })
 }
 

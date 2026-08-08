@@ -1,6 +1,10 @@
 //! ALPN protocol constants and wire format helpers for iroh transport.
 
+use std::sync::Arc;
+
 use iroh::endpoint::{RecvStream, SendStream};
+
+use crate::metrics::{TrafficClass, TransportCounters};
 
 /// ALPN for PushLog request-response.
 pub const ALPN_PUSHLOG: &[u8] = b"/defra-iroh/pushlog/0.1";
@@ -92,6 +96,72 @@ pub const MAX_CAR_SIZE: usize = 64 * 1024 * 1024; // 64 MiB
 /// Maximum size for management messages.
 pub const MAX_MANAGE_MSG_SIZE: usize = 4 * 1024 * 1024; // 4 MiB
 
+/// Attribution for one framed message, so the traffic can be counted against
+/// the ALPN that carried it.
+///
+/// A `None` counter handle disables counting; that is what production nodes
+/// use and it compiles down to a `None` check per message.
+#[derive(Clone, Copy)]
+pub struct Meter<'a> {
+    counters: Option<&'a Arc<TransportCounters>>,
+    alpn: &'a [u8],
+    class: TrafficClass,
+}
+
+impl<'a> Meter<'a> {
+    /// Attribute traffic on `alpn` as coordination traffic.
+    pub fn control(counters: Option<&'a Arc<TransportCounters>>, alpn: &'a [u8]) -> Self {
+        Self {
+            counters,
+            alpn,
+            class: TrafficClass::Control,
+        }
+    }
+
+    /// Attribute traffic on `alpn` as block payload.
+    pub fn payload(counters: Option<&'a Arc<TransportCounters>>, alpn: &'a [u8]) -> Self {
+        Self {
+            counters,
+            alpn,
+            class: TrafficClass::Payload,
+        }
+    }
+
+    /// Attribute traffic on `alpn` as the class that protocol carries, so both
+    /// ends of a stream classify it the same way.
+    pub fn for_alpn(counters: Option<&'a Arc<TransportCounters>>, alpn: &'a [u8]) -> Self {
+        if alpn == ALPN_CAR_RESP {
+            Self::payload(counters, alpn)
+        } else {
+            Self::control(counters, alpn)
+        }
+    }
+
+    /// Record an inbound read that did not go through the length-prefix
+    /// framing, such as a raw CAR body.
+    pub fn record_raw_recv(&self, bytes: usize) {
+        self.record_recv(bytes);
+    }
+
+    /// Record an outbound write that did not go through the length-prefix
+    /// framing, such as a raw CAR body.
+    pub fn record_raw_sent(&self, bytes: usize) {
+        self.record_sent(bytes);
+    }
+
+    fn record_sent(&self, bytes: usize) {
+        if let Some(counters) = self.counters {
+            counters.record_sent(&String::from_utf8_lossy(self.alpn), self.class, bytes);
+        }
+    }
+
+    fn record_recv(&self, bytes: usize) {
+        if let Some(counters) = self.counters {
+            counters.record_recv(&String::from_utf8_lossy(self.alpn), self.class, bytes);
+        }
+    }
+}
+
 /// Read a length-prefixed CBOR message from a QUIC recv stream.
 ///
 /// The `max_size` parameter caps the allocation to prevent a malicious peer
@@ -99,8 +169,9 @@ pub const MAX_MANAGE_MSG_SIZE: usize = 4 * 1024 * 1024; // 4 MiB
 pub async fn read_message<T: serde::de::DeserializeOwned>(
     recv: &mut RecvStream,
     max_size: usize,
+    meter: Meter<'_>,
 ) -> crate::error::Result<T> {
-    let payload = read_message_bytes(recv, max_size).await?;
+    let payload = read_message_bytes(recv, max_size, meter).await?;
     serde_cbor::from_slice(&payload).map_err(|e| crate::error::Error::Codec(e.to_string()))
 }
 
@@ -108,6 +179,7 @@ pub async fn read_message<T: serde::de::DeserializeOwned>(
 pub async fn read_message_bytes(
     recv: &mut RecvStream,
     max_size: usize,
+    meter: Meter<'_>,
 ) -> crate::error::Result<Vec<u8>> {
     let mut len_buf = [0u8; 4];
     recv.read_exact(&mut len_buf)
@@ -126,6 +198,7 @@ pub async fn read_message_bytes(
     recv.read_exact(&mut payload)
         .await
         .map_err(|e| crate::error::Error::Codec(format!("failed to read payload: {}", e)))?;
+    meter.record_recv(payload.len());
     Ok(payload)
 }
 
@@ -133,6 +206,7 @@ pub async fn read_message_bytes(
 pub async fn write_message<T: serde::Serialize>(
     send: &mut SendStream,
     value: &T,
+    meter: Meter<'_>,
 ) -> crate::error::Result<()> {
     let payload =
         serde_cbor::to_vec(value).map_err(|e| crate::error::Error::Codec(e.to_string()))?;
@@ -145,12 +219,51 @@ pub async fn write_message<T: serde::Serialize>(
         .await
         .map_err(|e| crate::error::Error::Codec(format!("failed to write payload: {}", e)))?;
 
+    meter.record_sent(payload.len());
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn meter_records_against_its_alpn_and_class() {
+        let counters = TransportCounters::new();
+        Meter::control(Some(&counters), ALPN_DOCSYNC).record_sent(120);
+        Meter::payload(Some(&counters), ALPN_CAR_RESP).record_recv(4096);
+
+        let snapshot = counters.snapshot();
+        assert_eq!(snapshot.control_bytes_sent(), 120);
+        assert_eq!(snapshot.control_msgs(), 1);
+        assert_eq!(snapshot.payload_bytes_recv(), 4096);
+        assert!(snapshot
+            .protocols
+            .contains_key(&String::from_utf8_lossy(ALPN_DOCSYNC).to_string()));
+    }
+
+    /// Sender and receiver must agree on what a protocol carries. Classifying
+    /// a CAR response as control on the way out and payload on the way in
+    /// makes the two ends' totals incomparable.
+    #[test]
+    fn car_responses_classify_as_payload_and_everything_else_as_control() {
+        let counters = TransportCounters::new();
+        Meter::for_alpn(Some(&counters), ALPN_CAR_RESP).record_sent(4096);
+        Meter::for_alpn(Some(&counters), ALPN_CAR).record_sent(30);
+        Meter::for_alpn(Some(&counters), ALPN_DOCSYNC).record_sent(120);
+
+        let snapshot = counters.snapshot();
+        assert_eq!(snapshot.payload_bytes_sent(), 4096);
+        assert_eq!(snapshot.control_bytes_sent(), 150);
+    }
+
+    #[test]
+    fn disabled_meter_records_nothing() {
+        let counters = TransportCounters::new();
+        Meter::control(None, ALPN_DOCSYNC).record_sent(120);
+
+        assert!(counters.snapshot().protocols.is_empty());
+    }
 
     #[test]
     fn manage_alpns_registered() {

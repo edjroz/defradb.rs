@@ -31,7 +31,7 @@ pub use addr::{
     endpoint_ticket_string, format_public_listen_addrs, is_ticket_string, parse_public_peer_addr,
 };
 pub use config::{IrohDiscoveryConfig, IrohRelayModeConfig};
-pub use endpoint::spawn_endpoint;
+pub use endpoint::{spawn_endpoint, spawn_endpoint_metered};
 pub use endpoint_config::IrohEndpointConfig;
 pub use gossip_heal::GossipHealConfig;
 pub use protocols::ALPN_RECON;

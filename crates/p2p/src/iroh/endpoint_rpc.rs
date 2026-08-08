@@ -8,6 +8,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
 use crate::message::{CarFetchRequest, PushLogReply};
+use crate::metrics::TransportCounters;
 use crate::transport::{PeerId, TransportEvent};
 use crate::QueryId;
 
@@ -294,11 +295,13 @@ pub(super) async fn handle_request_response<Req, Resp>(
     request: &Req,
     direct_addr: Option<std::net::SocketAddr>,
     cache: &ConnectionCache,
+    counters: Option<&Arc<TransportCounters>>,
 ) -> crate::error::Result<Resp>
 where
     Req: serde::Serialize,
     Resp: serde::de::DeserializeOwned,
 {
+    let meter = protocols::Meter::control(counters, alpn);
     let connection = connect_with_cache(endpoint, peer_id, alpn, direct_addr, cache).await?;
 
     let (mut send, mut recv) = match open_bi_with_timeout(&connection, peer_id, alpn).await {
@@ -309,7 +312,7 @@ where
         }
     };
 
-    if let Err(error) = protocols::write_message(&mut send, request).await {
+    if let Err(error) = protocols::write_message(&mut send, request, meter).await {
         evict_connection(cache, peer_id, alpn);
         return Err(error);
     }
@@ -323,7 +326,7 @@ where
 
     let response: Resp = tokio::time::timeout(
         REQUEST_RESPONSE_TIMEOUT,
-        protocols::read_message(&mut recv, protocols::MAX_MESSAGE_SIZE),
+        protocols::read_message(&mut recv, protocols::MAX_MESSAGE_SIZE, meter),
     )
     .await
     .map_err(|_| {
@@ -383,8 +386,10 @@ pub(super) async fn handle_two_stream_request(
     direct_addr: Option<std::net::SocketAddr>,
     cache: &ConnectionCache,
     legacy_reply: oneshot::Receiver<PushLogReply>,
+    counters: Option<&Arc<TransportCounters>>,
 ) -> crate::error::Result<PushLogReply> {
     let alpn = protocols::ALPN_TWOSTREAM;
+    let meter = protocols::Meter::control(counters, alpn);
     let connection = connect_with_cache(endpoint, peer_id, alpn, direct_addr, cache).await?;
 
     let (mut send, mut recv) = match open_bi_with_timeout(&connection, peer_id, alpn).await {
@@ -395,7 +400,7 @@ pub(super) async fn handle_two_stream_request(
         }
     };
 
-    if let Err(error) = protocols::write_message(&mut send, request).await {
+    if let Err(error) = protocols::write_message(&mut send, request, meter).await {
         evict_connection(cache, peer_id, alpn);
         return Err(error);
     }
@@ -408,7 +413,8 @@ pub(super) async fn handle_two_stream_request(
     }
 
     let wait_for_reply = async {
-        let same_stream_reply = protocols::read_message(&mut recv, protocols::MAX_MESSAGE_SIZE);
+        let same_stream_reply =
+            protocols::read_message(&mut recv, protocols::MAX_MESSAGE_SIZE, meter);
         tokio::pin!(same_stream_reply);
         tokio::pin!(legacy_reply);
 
@@ -450,7 +456,9 @@ async fn send_one_way_message<T: serde::Serialize>(
     msg: &T,
     direct_addr: Option<std::net::SocketAddr>,
     cache: &ConnectionCache,
+    counters: Option<&Arc<TransportCounters>>,
 ) -> crate::error::Result<()> {
+    let meter = protocols::Meter::for_alpn(counters, alpn);
     let connection = connect_with_cache(endpoint, peer_id, alpn, direct_addr, cache).await?;
 
     let (mut send, mut recv) = match open_bi_with_timeout(&connection, peer_id, alpn).await {
@@ -461,7 +469,7 @@ async fn send_one_way_message<T: serde::Serialize>(
         }
     };
 
-    if let Err(error) = protocols::write_message(&mut send, msg).await {
+    if let Err(error) = protocols::write_message(&mut send, msg, meter).await {
         evict_connection(cache, peer_id, alpn);
         return Err(error);
     }
@@ -492,8 +500,9 @@ pub(super) async fn handle_fire_and_forget<T: serde::Serialize>(
     msg: &T,
     direct_addr: Option<std::net::SocketAddr>,
     cache: &ConnectionCache,
+    counters: Option<&Arc<TransportCounters>>,
 ) -> crate::error::Result<()> {
-    send_one_way_message(endpoint, peer_id, alpn, msg, direct_addr, cache).await
+    send_one_way_message(endpoint, peer_id, alpn, msg, direct_addr, cache, counters).await
 }
 
 /// Send a one-way message, then keep the bidirectional stream alive briefly so
@@ -510,8 +519,9 @@ pub(super) async fn handle_send_only<T: serde::Serialize>(
     msg: &T,
     direct_addr: Option<std::net::SocketAddr>,
     cache: &ConnectionCache,
+    counters: Option<&Arc<TransportCounters>>,
 ) -> crate::error::Result<()> {
-    send_one_way_message(endpoint, peer_id, alpn, msg, direct_addr, cache).await
+    send_one_way_message(endpoint, peer_id, alpn, msg, direct_addr, cache, counters).await
 }
 
 /// Send a CAR request and emit the response as a transport event.
@@ -527,7 +537,10 @@ pub(super) async fn handle_car_request_response(
     direct_addr: Option<std::net::SocketAddr>,
     cache: &ConnectionCache,
     event_tx: &mpsc::Sender<TransportEvent<iroh::endpoint::SendStream>>,
+    counters: Option<&Arc<TransportCounters>>,
 ) -> crate::error::Result<()> {
+    let request_meter = protocols::Meter::control(counters, protocols::ALPN_CAR);
+    let response_meter = protocols::Meter::payload(counters, protocols::ALPN_CAR_RESP);
     let connection =
         connect_with_cache(endpoint, peer_id, protocols::ALPN_CAR, direct_addr, cache).await?;
 
@@ -541,7 +554,7 @@ pub(super) async fn handle_car_request_response(
         };
 
     let request = CarFetchRequest::full_dag(root_cid);
-    if let Err(error) = protocols::write_message(&mut send, &request).await {
+    if let Err(error) = protocols::write_message(&mut send, &request, request_meter).await {
         evict_connection(cache, peer_id, protocols::ALPN_CAR);
         return Err(error);
     }
@@ -566,6 +579,7 @@ pub(super) async fn handle_car_request_response(
         evict_connection(cache, peer_id, protocols::ALPN_CAR);
         crate::error::Error::Transport(e.to_string())
     })?;
+    response_meter.record_raw_recv(car_data.len());
 
     if event_tx
         .send(TransportEvent::CarFetchResponse {
@@ -592,7 +606,10 @@ async fn try_fetch_from_provider(
     direct_addr: Option<std::net::SocketAddr>,
     cache: &ConnectionCache,
     event_tx: &mpsc::Sender<TransportEvent<iroh::endpoint::SendStream>>,
+    counters: Option<&Arc<TransportCounters>>,
 ) -> CarFetchAttempt {
+    let request_meter = protocols::Meter::control(counters, protocols::ALPN_CAR);
+    let response_meter = protocols::Meter::payload(counters, protocols::ALPN_CAR_RESP);
     // Per-provider CAR failures log at debug — the caller aggregates per-DAG
     // outcomes into a single WARN via BitswapComplete (see issue #858).
     if let Err(error) = parse_endpoint_id(provider) {
@@ -645,7 +662,7 @@ async fn try_fetch_from_provider(
             }
         };
 
-    if let Err(e) = protocols::write_message(&mut send, &request).await {
+    if let Err(e) = protocols::write_message(&mut send, &request, request_meter).await {
         evict_connection(cache, provider, protocols::ALPN_CAR);
         debug!(
             provider = %provider,
@@ -684,7 +701,10 @@ async fn try_fetch_from_provider(
         match tokio::time::timeout(REQUEST_RESPONSE_TIMEOUT, recv.read_to_end(64 * 1024 * 1024))
             .await
         {
-            Ok(Ok(data)) => data,
+            Ok(Ok(data)) => {
+                response_meter.record_raw_recv(data.len());
+                data
+            }
             Ok(Err(e)) => {
                 evict_connection(cache, provider, protocols::ALPN_CAR);
                 debug!(
@@ -789,6 +809,7 @@ pub(super) struct BlockSyncResources {
     peer_map: std::sync::Arc<parking_lot::Mutex<PeerMap>>,
     connection_cache: ConnectionCache,
     event_tx: mpsc::Sender<TransportEvent<iroh::endpoint::SendStream>>,
+    counters: Option<Arc<TransportCounters>>,
 }
 
 impl BlockSyncResources {
@@ -797,12 +818,14 @@ impl BlockSyncResources {
         peer_map: std::sync::Arc<parking_lot::Mutex<PeerMap>>,
         connection_cache: ConnectionCache,
         event_tx: mpsc::Sender<TransportEvent<iroh::endpoint::SendStream>>,
+        counters: Option<Arc<TransportCounters>>,
     ) -> Self {
         Self {
             endpoint,
             peer_map,
             connection_cache,
             event_tx,
+            counters,
         }
     }
 }
@@ -842,6 +865,7 @@ pub(super) async fn handle_block_sync(
         peer_map,
         connection_cache,
         event_tx,
+        counters,
     } = resources;
 
     for provider in &providers {
@@ -851,6 +875,7 @@ pub(super) async fn handle_block_sync(
         let event_tx = event_tx.clone();
         let provider = provider.clone();
         let request = request.clone();
+        let counters = counters.clone();
         tasks.spawn(async move {
             let direct_addr = super::endpoint::peer_direct_addr(&peer_map, &provider);
             try_fetch_from_provider(
@@ -860,6 +885,7 @@ pub(super) async fn handle_block_sync(
                 direct_addr,
                 &connection_cache,
                 &event_tx,
+                counters.as_ref(),
             )
             .await
         });
@@ -979,6 +1005,61 @@ mod tests {
             .bind()
             .await
             .expect("bind endpoint")
+    }
+
+    /// The meter must see exactly the framed payload each side put on (and
+    /// took off) the wire, so a benchmark can compare a sender's control bytes
+    /// with its peer's.
+    #[tokio::test]
+    async fn framing_meters_count_both_ends_of_a_real_stream() {
+        let alpn = b"test/meter".to_vec();
+        let accept_ep = localhost_endpoint(vec![alpn.clone()]).await;
+        let dial_ep = localhost_endpoint(vec![]).await;
+        let addr = accept_ep.addr();
+
+        let reader_counters = TransportCounters::new();
+        let reader_task = tokio::spawn({
+            let counters = Arc::clone(&reader_counters);
+            let alpn = alpn.clone();
+            async move {
+                let conn = accept_ep
+                    .accept()
+                    .await
+                    .expect("incoming")
+                    .await
+                    .expect("connection");
+                let (_send, mut recv) = conn.accept_bi().await.expect("accept_bi");
+                let meter = protocols::Meter::control(Some(&counters), &alpn);
+                protocols::read_message::<String>(&mut recv, protocols::MAX_MESSAGE_SIZE, meter)
+                    .await
+                    .expect("read message")
+            }
+        });
+
+        let writer_counters = TransportCounters::new();
+        let conn = dial_ep.connect(addr, &alpn).await.expect("connect");
+        let (mut send, _recv) = conn.open_bi().await.expect("open_bi");
+        let message = "reconciliation".to_string();
+        protocols::write_message(
+            &mut send,
+            &message,
+            protocols::Meter::control(Some(&writer_counters), &alpn),
+        )
+        .await
+        .expect("write message");
+        send.finish().expect("finish");
+
+        assert_eq!(reader_task.await.expect("reader task"), message);
+
+        let sent = writer_counters.snapshot();
+        let recv = reader_counters.snapshot();
+        assert_eq!(
+            sent.control_bytes_sent(),
+            serde_cbor::to_vec(&message).unwrap().len() as u64
+        );
+        assert_eq!(recv.control_bytes_recv(), sent.control_bytes_sent());
+        assert_eq!(sent.control_msgs(), 1);
+        assert_eq!(recv.control_msgs(), 1);
     }
 
     /// Regression (#1092 review): a peer can hold several live connections

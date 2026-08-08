@@ -69,6 +69,7 @@ pub mod host;
 pub mod kms;
 pub mod manage_correlator;
 pub mod message;
+pub mod metrics;
 pub mod peer_identity;
 pub mod protocol;
 #[cfg(feature = "libp2p-transport")]

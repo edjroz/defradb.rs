@@ -8,7 +8,7 @@ use serde_json::Value as JsonValue;
 
 use super::{EmbeddedNode, P2PConfig};
 
-fn init_tracing() {
+pub(crate) fn init_tracing() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         let filter = tracing_subscriber::EnvFilter::from_default_env()
@@ -30,7 +30,7 @@ fn init_tracing() {
     });
 }
 
-fn test_p2p_config() -> P2PConfig {
+pub(crate) fn test_p2p_config() -> P2PConfig {
     P2PConfig {
         port: 0,
         bind_addr: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
@@ -45,6 +45,7 @@ fn test_p2p_config() -> P2PConfig {
         rate_limit_burst: p2p::sync::DEFAULT_RATE_LIMIT_BURST,
         rate_limit_rate: p2p::sync::DEFAULT_RATE_LIMIT_RATE,
         max_pending_dags: p2p::sync::DEFAULT_MAX_PENDING_DAGS,
+        counters: None,
     }
 }
 
@@ -83,17 +84,24 @@ async fn build_persistent_p2p_node(data_path: PathBuf, secret_key_path: PathBuf)
         .expect("build persistent P2P node")
 }
 
-async fn wait_for_listen_addr(node: &EmbeddedNode) -> String {
+/// An address of `node` that another node can actually dial.
+///
+/// Deliberately not `listen_addresses().first()`. That list leads with direct
+/// addresses in whatever order iroh enumerated them, and the host's LAN
+/// address is discovered shortly after start and sorts ahead of loopback.
+/// Test nodes bind loopback only, so a test that dials the first entry late
+/// enough dials a socket nothing is listening on and times out.
+pub(crate) async fn wait_for_listen_addr(node: &EmbeddedNode) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let addrs = node
+        let addr = node
             .p2p()
             .expect("P2P should be enabled")
-            .listen_addresses()
+            .shareable_address()
             .await
-            .expect("listen_addresses should succeed");
-        if let Some(addr) = addrs.first() {
-            return addr.clone();
+            .expect("shareable_address should succeed");
+        if let Some(addr) = addr {
+            return addr;
         }
         assert!(
             Instant::now() < deadline,
@@ -103,7 +111,7 @@ async fn wait_for_listen_addr(node: &EmbeddedNode) -> String {
     }
 }
 
-async fn wait_for_connected_peer(node: &EmbeddedNode) {
+pub(crate) async fn wait_for_connected_peer(node: &EmbeddedNode) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let peers = node
