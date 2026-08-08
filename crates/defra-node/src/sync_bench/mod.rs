@@ -6,5 +6,7 @@
 //! [`crate::P2PConfig::counters`] and reads the totals back into a
 //! [`csv::MeasurementRow`].
 
-pub(crate) mod csv;
-pub(crate) mod scenario;
+mod baseline;
+mod csv;
+mod harness;
+mod scenario;

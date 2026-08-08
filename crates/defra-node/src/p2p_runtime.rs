@@ -155,6 +155,7 @@ pub(super) struct P2PSetupResult {
     pub(super) mutator: Arc<dyn query::DocMutator>,
     pub(super) wire_document_acp: Option<WireDocumentAcpCallback>,
     pub(super) txn_broadcaster: Arc<dyn db::event_emission::TxnBroadcaster>,
+    pub(super) blockstore: Arc<dyn blockstore::Blockstore>,
 }
 
 pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
@@ -187,6 +188,7 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
 
     // 5. Blockstore for sync coordinator + merge handler
     let sync_blockstore = Arc::new(blockstore::DefraBlockstore::new(store.clone(), true));
+    let blockstore_for_stats: Arc<dyn blockstore::Blockstore> = sync_blockstore.clone();
     let classifier = defra_p2p_adapter::DbBlockClassifier::new_arc(database.clone());
     let serve_acp = Arc::new(p2p::bitswap::LateBoundServeAcp::new());
 
@@ -350,6 +352,7 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
             broadcast_mutator_for_acp.set_document_acp(acp);
         })),
         txn_broadcaster: replication.txn_broadcaster,
+        blockstore: blockstore_for_stats,
     })
 }
 

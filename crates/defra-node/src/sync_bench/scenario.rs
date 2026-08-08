@@ -1,8 +1,8 @@
 //! Deterministic two-node divergence fixtures.
 //!
-//! A scenario is `n` documents seeded on both nodes, then `d` of them updated
-//! on the writer only. Everything is derived from a seed so a measurement can
-//! be reproduced exactly.
+//! A scenario is `n` documents both nodes share, then `d` of them updated on
+//! the writer only. Everything is derived from a seed so a measurement can be
+//! reproduced exactly.
 
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -69,16 +69,6 @@ impl DivergenceFixture {
             updates,
         }
     }
-
-    /// The document set the reader is expected to converge on: every seeded
-    /// document with the writer-only updates applied.
-    pub(crate) fn converged_values(&self) -> Vec<i64> {
-        let mut values: Vec<i64> = self.docs.iter().map(|doc| doc.value).collect();
-        for update in &self.updates {
-            values[update.doc_index] = update.value;
-        }
-        values
-    }
 }
 
 #[cfg(test)]
@@ -123,9 +113,7 @@ mod tests {
     #[test]
     fn updates_change_the_value_they_target() {
         let fixture = DivergenceFixture::new(5, 200, 20);
-        let converged = fixture.converged_values();
         for update in &fixture.updates {
-            assert_eq!(converged[update.doc_index], update.value);
             assert_ne!(fixture.docs[update.doc_index].value, update.value);
         }
     }
@@ -134,10 +122,6 @@ mod tests {
     fn zero_divergence_leaves_the_seeded_state_untouched() {
         let fixture = DivergenceFixture::new(11, 10, 0);
         assert!(fixture.updates.is_empty());
-        assert_eq!(
-            fixture.converged_values(),
-            fixture.docs.iter().map(|d| d.value).collect::<Vec<_>>()
-        );
     }
 
     #[test]
