@@ -211,11 +211,7 @@ async fn dispatch_stream(
     >,
     counters: Option<&Arc<TransportCounters>>,
 ) -> crate::error::Result<()> {
-    let meter = if alpn == protocols::ALPN_CAR_RESP {
-        protocols::Meter::payload(counters, alpn)
-    } else {
-        protocols::Meter::control(counters, alpn)
-    };
+    let meter = protocols::Meter::for_alpn(counters, alpn);
     match alpn {
         x if x == protocols::ALPN_PUSHLOG => {
             let request: crate::message::PushLogRequest =

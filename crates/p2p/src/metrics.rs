@@ -1,9 +1,15 @@
-//! Per-protocol wire traffic counters for the P2P transports.
+//! Per-protocol application traffic counters for the P2P transports.
 //!
 //! A transport binding records every framed message it writes or reads against
 //! the protocol that carried it. Control traffic (coordination messages) is
 //! kept apart from payload traffic (block transfer) so a sync benchmark can
 //! report discovery cost independently of the data it moved.
+//!
+//! What is counted is the message body — the serialised CBOR, or a raw CAR
+//! body — and not the bytes the network moved: the 4-byte length prefix, QUIC
+//! framing, ALPN negotiation, acknowledgements and retransmissions are all
+//! outside these totals. Two nodes' counts are therefore comparable with each
+//! other, but they are a floor on link utilisation, not a measurement of it.
 //!
 //! Counting is opt-in: transports hold an `Option<Arc<TransportCounters>>` and
 //! skip the work entirely when it is `None`.
@@ -44,7 +50,7 @@ impl ProtocolCounts {
     }
 }
 
-/// Accumulates per-protocol wire traffic for one node.
+/// Accumulates per-protocol application traffic for one node.
 ///
 /// Shared across the transport's tasks behind an [`Arc`]; every method takes
 /// `&self`.

@@ -114,10 +114,26 @@ impl<'a> Meter<'a> {
         }
     }
 
+    /// Attribute traffic on `alpn` as the class that protocol carries, so both
+    /// ends of a stream classify it the same way.
+    pub fn for_alpn(counters: Option<&'a Arc<TransportCounters>>, alpn: &'a [u8]) -> Self {
+        if alpn == ALPN_CAR_RESP {
+            Self::payload(counters, alpn)
+        } else {
+            Self::control(counters, alpn)
+        }
+    }
+
     /// Record an inbound read that did not go through the length-prefix
     /// framing, such as a raw CAR body.
     pub fn record_raw_recv(&self, bytes: usize) {
         self.record_recv(bytes);
+    }
+
+    /// Record an outbound write that did not go through the length-prefix
+    /// framing, such as a raw CAR body.
+    pub fn record_raw_sent(&self, bytes: usize) {
+        self.record_sent(bytes);
     }
 
     fn record_sent(&self, bytes: usize) {
@@ -211,6 +227,21 @@ mod tests {
         assert!(snapshot
             .protocols
             .contains_key(&String::from_utf8_lossy(ALPN_DOCSYNC).to_string()));
+    }
+
+    /// Sender and receiver must agree on what a protocol carries. Classifying
+    /// a CAR response as control on the way out and payload on the way in
+    /// makes the two ends' totals incomparable.
+    #[test]
+    fn car_responses_classify_as_payload_and_everything_else_as_control() {
+        let counters = TransportCounters::new();
+        Meter::for_alpn(Some(&counters), ALPN_CAR_RESP).record_sent(4096);
+        Meter::for_alpn(Some(&counters), ALPN_CAR).record_sent(30);
+        Meter::for_alpn(Some(&counters), ALPN_DOCSYNC).record_sent(120);
+
+        let snapshot = counters.snapshot();
+        assert_eq!(snapshot.payload_bytes_sent(), 4096);
+        assert_eq!(snapshot.control_bytes_sent(), 150);
     }
 
     #[test]

@@ -184,7 +184,8 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
             .map_err(|e| anyhow::anyhow!("IROH endpoint spawn failed: {}", e))?;
 
     // 3. Create IROH transport facade
-    let transport = p2p::iroh::IrohTransport::new(command_tx, secret_key);
+    let transport =
+        p2p::iroh::IrohTransport::new_metered(command_tx, secret_key, config.counters.clone());
 
     // 5. Blockstore for sync coordinator + merge handler
     let sync_blockstore = Arc::new(blockstore::DefraBlockstore::new(store.clone(), true));

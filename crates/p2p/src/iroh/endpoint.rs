@@ -130,7 +130,7 @@ pub async fn spawn_endpoint(
     spawn_endpoint_metered(config, None).await
 }
 
-/// [`spawn_endpoint`] with per-protocol wire traffic counting.
+/// [`spawn_endpoint`] with per-protocol application traffic counting.
 ///
 /// `counters` is `None` for production nodes; benchmarks pass a handle and
 /// read the totals back out after a run.

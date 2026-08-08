@@ -431,7 +431,7 @@ async fn send_one_way_message<T: serde::Serialize>(
     cache: &ConnectionCache,
     counters: Option<&Arc<TransportCounters>>,
 ) -> crate::error::Result<()> {
-    let meter = protocols::Meter::control(counters, alpn);
+    let meter = protocols::Meter::for_alpn(counters, alpn);
     let connection = connect_with_cache(endpoint, peer_id, alpn, direct_addr, cache).await?;
 
     let (mut send, mut recv) = match open_bi_with_timeout(&connection, peer_id, alpn).await {
