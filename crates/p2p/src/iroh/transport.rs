@@ -377,6 +377,17 @@ impl P2PTransport for IrohTransport {
         .await
     }
 
+    async fn open_reconcile_session(
+        &self,
+        peer_id: &PeerId,
+    ) -> Result<Box<dyn crate::reconcile::ReconcileStream>> {
+        self.send_command(|reply| IrohCommand::OpenReconcileSession {
+            peer_id: peer_id.clone(),
+            reply,
+        })
+        .await
+    }
+
     async fn send_manage_response(&self, peer_id: &PeerId, reply_msg: ManageReply) -> Result<()> {
         self.send_command(|reply| IrohCommand::SendManageResponse {
             peer_id: peer_id.clone(),
@@ -526,6 +537,7 @@ mod tests {
             bind_addr: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
             max_concurrent_multipath_paths: None,
             gossip_heal: Default::default(),
+            reconcile_enabled: false,
         }
     }
 

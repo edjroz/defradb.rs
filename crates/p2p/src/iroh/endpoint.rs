@@ -127,6 +127,9 @@ pub async fn spawn_endpoint(
 )> {
     let mut alpns: Vec<Vec<u8>> = protocols::ALL_ALPNS.iter().map(|a| a.to_vec()).collect();
     alpns.push(iroh_gossip::net::GOSSIP_ALPN.to_vec());
+    if config.reconcile_enabled {
+        alpns.push(protocols::ALPN_RECON.to_vec());
+    }
 
     let relay_mode = relay_mode_from_config(&config.relay_mode)?;
     let relay_urls: Vec<String> = relay_mode

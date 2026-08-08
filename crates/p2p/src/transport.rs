@@ -233,6 +233,13 @@ pub enum TransportEvent<ResponseToken> {
         peer_id: PeerId,
         reply: ManageQueryReply,
     },
+    /// A peer opened a set reconciliation session. The stream carries both
+    /// directions because the session is multi-round, unlike the
+    /// request/response protocols whose token is a send half alone.
+    ReconcileSession {
+        peer_id: PeerId,
+        stream: Box<dyn crate::reconcile::ReconcileStream>,
+    },
     Listening(PeerAddr),
 }
 
@@ -435,6 +442,17 @@ pub trait P2PTransport: Clone + Send + Sync + 'static {
     async fn send_manage_response(&self, _peer_id: &PeerId, _reply: ManageReply) -> Result<()> {
         Err(crate::error::Error::Transport(
             "send_manage_response is not supported on this transport".to_string(),
+        ))
+    }
+
+    /// Opens a set reconciliation session to a peer, yielding the bidirectional
+    /// frame stream the session runs over.
+    async fn open_reconcile_session(
+        &self,
+        _peer_id: &PeerId,
+    ) -> Result<Box<dyn crate::reconcile::ReconcileStream>> {
+        Err(crate::error::Error::Transport(
+            "open_reconcile_session is not supported on this transport".to_string(),
         ))
     }
 

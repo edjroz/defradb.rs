@@ -343,6 +343,33 @@ where
     Ok(response)
 }
 
+/// Open a reconciliation bi-stream and hand both halves to the caller.
+///
+/// Unlike the request/response helpers this returns before a single byte is
+/// exchanged: the session that rides the stream owns the whole conversation, so
+/// there is nothing sensible to write or wait for here. A failed open evicts the
+/// cached connection like every other path, so a stale connection is retried
+/// rather than remembered.
+pub(super) async fn handle_open_reconcile_session(
+    endpoint: &Endpoint,
+    peer_id: &PeerId,
+    direct_addr: Option<std::net::SocketAddr>,
+    cache: &ConnectionCache,
+) -> crate::error::Result<Box<dyn crate::reconcile::ReconcileStream>> {
+    let alpn = protocols::ALPN_RECON;
+    let connection = connect_with_cache(endpoint, peer_id, alpn, direct_addr, cache).await?;
+
+    match open_bi_with_timeout(&connection, peer_id, alpn).await {
+        Ok((send, recv)) => Ok(Box::new(super::reconcile_stream::IrohReconcileStream::new(
+            send, recv,
+        ))),
+        Err(error) => {
+            evict_connection(cache, peer_id, alpn);
+            Err(error)
+        }
+    }
+}
+
 /// Send a two-stream PushLog request and accept either response shape.
 ///
 /// Current peers reply on this request's receive stream. During a rolling

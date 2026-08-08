@@ -20,6 +20,7 @@ mod endpoint_streams;
 mod gossip_heal;
 mod peer_map;
 mod protocols;
+mod reconcile_stream;
 mod secret_key;
 mod transport;
 #[cfg(test)]
@@ -33,5 +34,7 @@ pub use config::{IrohDiscoveryConfig, IrohRelayModeConfig};
 pub use endpoint::spawn_endpoint;
 pub use endpoint_config::IrohEndpointConfig;
 pub use gossip_heal::GossipHealConfig;
+pub use protocols::ALPN_RECON;
+pub use reconcile_stream::IrohReconcileStream;
 pub use secret_key::load_or_generate_secret_key;
 pub use transport::IrohTransport;

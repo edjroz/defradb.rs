@@ -160,6 +160,12 @@ pub enum IrohCommand {
         request: ManageRequest,
         reply: oneshot::Sender<crate::error::Result<()>>,
     },
+
+    /// Opens a reconciliation bi-stream to a peer and hands both halves back.
+    OpenReconcileSession {
+        peer_id: PeerId,
+        reply: oneshot::Sender<crate::error::Result<Box<dyn crate::reconcile::ReconcileStream>>>,
+    },
     SendManageResponse {
         peer_id: PeerId,
         reply_msg: ManageReply,

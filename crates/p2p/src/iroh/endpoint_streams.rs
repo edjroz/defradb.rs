@@ -131,6 +131,26 @@ async fn handle_connection_streams(
     let peer_id = endpoint_id_to_peer_id(&remote_id);
 
     while let Ok((send, mut recv)) = connection.accept_bi().await {
+        // A reconciliation session needs both halves for its whole life, so it
+        // is handed over whole instead of being read once and answered with a
+        // send-only token. The ALPN is only offered when reconciliation is
+        // enabled, so reaching this arm already proves the node opted in.
+        if alpn == protocols::ALPN_RECON {
+            if event_tx
+                .send(TransportEvent::ReconcileSession {
+                    peer_id: peer_id.clone(),
+                    stream: Box::new(super::reconcile_stream::IrohReconcileStream::new(
+                        send, recv,
+                    )),
+                })
+                .await
+                .is_err()
+            {
+                warn!("Event channel closed, cannot emit ReconcileSession");
+            }
+            continue;
+        }
+
         let peer_id = peer_id.clone();
         let event_tx = event_tx.clone();
         let alpn = alpn.clone();

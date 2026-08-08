@@ -50,6 +50,19 @@ pub const ALPN_TWOSTREAM: &[u8] = b"/defra-iroh/twostream/0.1";
 /// ALPN for two-stream push replies.
 pub const ALPN_TWOSTREAM_RESP: &[u8] = b"/defra-iroh/twostream/0.1/resp";
 
+/// ALPN for set reconciliation sessions.
+///
+/// One ALPN, not the request/response pair the fire-and-forget protocols use: a
+/// reconciliation session is multi-round over a single bi-stream, so both
+/// directions live on the same connection. The `0.1` suffix versions this iroh
+/// binding, as it does for every sibling; the reconciliation protocol itself is
+/// versioned inside the codec envelope, and the two move independently.
+///
+/// Deliberately absent from [`ALL_ALPNS`]: a node only offers this ALPN when
+/// reconciliation is enabled, so a default node refuses the protocol during the
+/// QUIC handshake and never reaches any reconciliation code at all.
+pub const ALPN_RECON: &[u8] = b"/defra-iroh/recon/0.1";
+
 /// All ALPNs this node should accept.
 pub const ALL_ALPNS: &[&[u8]] = &[
     ALPN_PUSHLOG,
@@ -149,5 +162,14 @@ mod tests {
         ] {
             assert!(ALL_ALPNS.contains(&a));
         }
+    }
+
+    #[test]
+    fn reconcile_alpn_is_not_always_on() {
+        assert!(
+            !ALL_ALPNS.contains(&ALPN_RECON),
+            "the reconcile ALPN must be offered only when the feature is enabled, \
+             so a default node refuses it during the handshake"
+        );
     }
 }

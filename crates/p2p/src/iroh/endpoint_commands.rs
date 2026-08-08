@@ -23,7 +23,8 @@ use super::endpoint::{
 };
 use super::endpoint_rpc::{
     close_peer_connections, handle_block_sync, handle_car_request_response, handle_fire_and_forget,
-    handle_request_response, handle_send_only, handle_two_stream_request, BlockSyncResources,
+    handle_open_reconcile_session, handle_request_response, handle_send_only,
+    handle_two_stream_request, BlockSyncResources,
 };
 use super::gossip_heal;
 use super::peer_map::{endpoint_id_to_peer_id, parse_endpoint_id, PeerMap};
@@ -517,6 +518,22 @@ pub(super) async fn handle_command(
                     &peer_id,
                     protocols::ALPN_MANAGE_REQ,
                     &request,
+                    direct_addr,
+                    &connection_cache,
+                )
+                .await;
+                let _ = reply.send(result);
+            });
+            track_task(spawned_tasks, task);
+        }
+        IrohCommand::OpenReconcileSession { peer_id, reply } => {
+            let direct_addr = peer_direct_addr(peer_map, &peer_id);
+            let endpoint = endpoint.clone();
+            let connection_cache = Arc::clone(connection_cache);
+            let task = tokio::spawn(async move {
+                let result = handle_open_reconcile_session(
+                    &endpoint,
+                    &peer_id,
                     direct_addr,
                     &connection_cache,
                 )

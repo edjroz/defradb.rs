@@ -27,6 +27,10 @@ pub struct IrohEndpointConfig {
     pub max_concurrent_multipath_paths: Option<u32>,
     /// Gossip send-path healing (#1092).
     pub gossip_heal: GossipHealConfig,
+    /// Whether to offer the set reconciliation ALPN. Off by default: a node
+    /// that does not offer it refuses reconciliation at the QUIC handshake, so
+    /// no peer can reach the reconciliation code path at all.
+    pub reconcile_enabled: bool,
 }
 
 impl Default for IrohEndpointConfig {
@@ -39,6 +43,7 @@ impl Default for IrohEndpointConfig {
             bind_addr: None,
             max_concurrent_multipath_paths: None,
             gossip_heal: GossipHealConfig::default(),
+            reconcile_enabled: false,
         }
     }
 }
