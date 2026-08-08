@@ -11,6 +11,7 @@ use tracing::{debug, warn};
 
 use crate::error::Error;
 use crate::message::{Message, PushLogReply};
+use crate::metrics::TransportCounters;
 use crate::transport::{PeerId, TransportEvent};
 
 use super::endpoint::{track_task, EndpointResources, SpawnedTasks, SubscriptionSenders};
@@ -99,6 +100,7 @@ pub(super) async fn handle_incoming(
     let peer_map = Arc::clone(&resources.peer_map);
     let pending_pushlog_replies = Arc::clone(pending_pushlog_replies);
     let spawned_tasks_for_connection = Arc::clone(&resources.spawned_tasks);
+    let counters = resources.counters.clone();
     let task = tokio::spawn(async move {
         handle_connection_streams(
             connection,
@@ -108,6 +110,7 @@ pub(super) async fn handle_incoming(
             peer_map,
             pending_pushlog_replies,
             &spawned_tasks_for_connection,
+            counters,
         )
         .await;
     });
@@ -117,6 +120,7 @@ pub(super) async fn handle_incoming(
 /// Process streams on an accepted connection, dispatching by ALPN.
 ///
 /// Emits `PeerDisconnected` only when the last connection for this peer closes.
+#[allow(clippy::too_many_arguments)]
 async fn handle_connection_streams(
     connection: Connection,
     remote_id: EndpointId,
@@ -127,6 +131,7 @@ async fn handle_connection_streams(
         parking_lot::Mutex<HashMap<String, oneshot::Sender<PushLogReply>>>,
     >,
     spawned_tasks: &SpawnedTasks,
+    counters: Option<Arc<TransportCounters>>,
 ) {
     let peer_id = endpoint_id_to_peer_id(&remote_id);
 
@@ -135,6 +140,7 @@ async fn handle_connection_streams(
         let event_tx = event_tx.clone();
         let alpn = alpn.clone();
         let pending_pushlog_replies = pending_pushlog_replies.clone();
+        let counters = counters.clone();
         let task = tokio::spawn(async move {
             if let Err(e) = dispatch_stream(
                 &alpn,
@@ -143,6 +149,7 @@ async fn handle_connection_streams(
                 &mut recv,
                 &event_tx,
                 &pending_pushlog_replies,
+                counters.as_ref(),
             )
             .await
             {
@@ -166,6 +173,7 @@ async fn handle_connection_streams(
 }
 
 /// Variant for connections initiated by dial (reuses the same stream handling).
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn handle_connection_streams_from_dial(
     connection: Connection,
     remote_id: EndpointId,
@@ -176,6 +184,7 @@ pub(super) async fn handle_connection_streams_from_dial(
         parking_lot::Mutex<HashMap<String, oneshot::Sender<PushLogReply>>>,
     >,
     spawned_tasks: &SpawnedTasks,
+    counters: Option<Arc<TransportCounters>>,
 ) {
     handle_connection_streams(
         connection,
@@ -185,6 +194,7 @@ pub(super) async fn handle_connection_streams_from_dial(
         peer_map,
         pending_pushlog_replies,
         spawned_tasks,
+        counters,
     )
     .await;
 }
@@ -199,11 +209,17 @@ async fn dispatch_stream(
     pending_pushlog_replies: &Arc<
         parking_lot::Mutex<HashMap<String, oneshot::Sender<PushLogReply>>>,
     >,
+    counters: Option<&Arc<TransportCounters>>,
 ) -> crate::error::Result<()> {
+    let meter = if alpn == protocols::ALPN_CAR_RESP {
+        protocols::Meter::payload(counters, alpn)
+    } else {
+        protocols::Meter::control(counters, alpn)
+    };
     match alpn {
         x if x == protocols::ALPN_PUSHLOG => {
             let request: crate::message::PushLogRequest =
-                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE, meter).await?;
             if event_tx
                 .send(TransportEvent::PushLogRequest {
                     peer_id: peer_id.clone(),
@@ -218,7 +234,7 @@ async fn dispatch_stream(
         }
         x if x == protocols::ALPN_TWOSTREAM => {
             let request: crate::message::PushLogRequest =
-                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE, meter).await?;
             if event_tx
                 .send(TransportEvent::TwoStreamRequest {
                     peer_id: peer_id.clone(),
@@ -237,7 +253,7 @@ async fn dispatch_stream(
             // Retained so upgraded senders can receive reverse-stream ACKs
             // from older receivers during a rolling deployment.
             let reply: PushLogReply =
-                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE, meter).await?;
             let (sender, pending_len_after_remove) = {
                 let mut pending = pending_pushlog_replies.lock();
                 let sender = pending.remove(&reply.message_id);
@@ -256,7 +272,7 @@ async fn dispatch_stream(
         }
         x if x == protocols::ALPN_DOCSYNC => {
             let request: crate::message::DocSyncRequest =
-                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE, meter).await?;
             if event_tx
                 .send(TransportEvent::DocSyncRequest {
                     peer_id: peer_id.clone(),
@@ -271,7 +287,7 @@ async fn dispatch_stream(
         }
         x if x == protocols::ALPN_BRANCHABLE => {
             let request: crate::message::BranchableSyncRequest =
-                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE, meter).await?;
             if event_tx
                 .send(TransportEvent::BranchableSyncRequest {
                     peer_id: peer_id.clone(),
@@ -287,7 +303,7 @@ async fn dispatch_stream(
         x if x == protocols::ALPN_CAR => {
             debug!(peer_id = %peer_id, "CAR dispatch: reading request");
             let request: crate::message::CarFetchRequest =
-                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE, meter).await?;
             debug!(
                 peer_id = %peer_id,
                 root_cid = %request.root_cid,
@@ -308,7 +324,8 @@ async fn dispatch_stream(
             }
         }
         x if x == protocols::ALPN_CAR_RESP => {
-            let car_data: Vec<u8> = protocols::read_message(recv, protocols::MAX_CAR_SIZE).await?;
+            let car_data: Vec<u8> =
+                protocols::read_message(recv, protocols::MAX_CAR_SIZE, meter).await?;
             // Extract the root CID from the CAR headers for event correlation.
             let root_cid = match crate::sync::car::decode_car(&car_data) {
                 Ok((roots, _)) => roots.into_iter().next(),
@@ -333,7 +350,7 @@ async fn dispatch_stream(
         }
         x if x == protocols::ALPN_DOCSYNC_RESP => {
             let reply: crate::message::DocSyncReply =
-                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE, meter).await?;
             debug!(peer_id = %peer_id, "Received doc sync response via fire-and-forget");
             if event_tx
                 .send(TransportEvent::DocSyncReply {
@@ -348,7 +365,7 @@ async fn dispatch_stream(
         }
         x if x == protocols::ALPN_BRANCHABLE_RESP => {
             let reply: crate::message::BranchableSyncReply =
-                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE, meter).await?;
             debug!(peer_id = %peer_id, "Received branchable sync response via fire-and-forget");
             if event_tx
                 .send(TransportEvent::BranchableSyncReply {
@@ -363,7 +380,7 @@ async fn dispatch_stream(
         }
         x if x == protocols::ALPN_SE => {
             let request: crate::message::PushSEArtifactsRequest =
-                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE, meter).await?;
             verify_iroh_message(&request)?;
             ensure_iroh_signed_sender(peer_id, request.sender_id.as_str())?;
             debug!(
@@ -387,7 +404,7 @@ async fn dispatch_stream(
         }
         x if x == protocols::ALPN_SE_QUERY_REQ => {
             let request: crate::message::QuerySEArtifactsRequest =
-                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE, meter).await?;
             verify_iroh_message(&request)?;
             ensure_iroh_signed_sender(peer_id, request.sender_id.as_str())?;
             debug!(
@@ -410,7 +427,7 @@ async fn dispatch_stream(
         }
         x if x == protocols::ALPN_SE_QUERY_RESP => {
             let reply: crate::message::QuerySEArtifactsReply =
-                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MESSAGE_SIZE, meter).await?;
             verify_iroh_message(&reply)?;
             ensure_iroh_signed_sender(peer_id, reply.sender_id.as_str())?;
             debug!(
@@ -432,7 +449,7 @@ async fn dispatch_stream(
         }
         x if x == protocols::ALPN_MANAGE_REQ => {
             let request: crate::message::ManageRequest =
-                protocols::read_message(recv, protocols::MAX_MANAGE_MSG_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MANAGE_MSG_SIZE, meter).await?;
             verify_iroh_message(&request)?;
             ensure_iroh_signed_sender(peer_id, request.sender_id.as_str())?;
             debug!(
@@ -453,7 +470,7 @@ async fn dispatch_stream(
         }
         x if x == protocols::ALPN_MANAGE_RESP => {
             let reply: crate::message::ManageReply =
-                protocols::read_message(recv, protocols::MAX_MANAGE_MSG_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MANAGE_MSG_SIZE, meter).await?;
             verify_iroh_message(&reply)?;
             ensure_iroh_signed_sender(peer_id, reply.sender_id.as_str())?;
             debug!(
@@ -474,7 +491,7 @@ async fn dispatch_stream(
         }
         x if x == protocols::ALPN_MANAGE_QUERY_REQ => {
             let request: crate::message::ManageQueryRequest =
-                protocols::read_message(recv, protocols::MAX_MANAGE_MSG_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MANAGE_MSG_SIZE, meter).await?;
             verify_iroh_message(&request)?;
             ensure_iroh_signed_sender(peer_id, request.sender_id.as_str())?;
             debug!(
@@ -495,7 +512,7 @@ async fn dispatch_stream(
         }
         x if x == protocols::ALPN_MANAGE_QUERY_RESP => {
             let reply: crate::message::ManageQueryReply =
-                protocols::read_message(recv, protocols::MAX_MANAGE_MSG_SIZE).await?;
+                protocols::read_message(recv, protocols::MAX_MANAGE_MSG_SIZE, meter).await?;
             verify_iroh_message(&reply)?;
             ensure_iroh_signed_sender(peer_id, reply.sender_id.as_str())?;
             debug!(

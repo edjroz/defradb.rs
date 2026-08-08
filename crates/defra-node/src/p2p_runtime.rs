@@ -178,7 +178,7 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
         gossip_heal: p2p::iroh::GossipHealConfig::from_env(),
     };
     let (command_tx, iroh_events, replicator_registry, endpoint_task) =
-        p2p::iroh::spawn_endpoint(iroh_config)
+        p2p::iroh::spawn_endpoint_metered(iroh_config, config.counters.clone())
             .await
             .map_err(|e| anyhow::anyhow!("IROH endpoint spawn failed: {}", e))?;
 

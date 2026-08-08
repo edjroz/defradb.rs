@@ -42,6 +42,8 @@ pub(super) struct EndpointResources {
     pub(super) connection_cache: ConnectionCache,
     pub(super) healer: Arc<GossipHealer>,
     pub(super) spawned_tasks: SpawnedTasks,
+    /// Per-protocol traffic counters; `None` disables counting.
+    pub(super) counters: Option<Arc<crate::metrics::TransportCounters>>,
 }
 
 /// Handle to a gossip topic subscription.
@@ -125,6 +127,22 @@ pub async fn spawn_endpoint(
     Arc<ReplicatorRegistry>,
     JoinHandle<()>,
 )> {
+    spawn_endpoint_metered(config, None).await
+}
+
+/// [`spawn_endpoint`] with per-protocol wire traffic counting.
+///
+/// `counters` is `None` for production nodes; benchmarks pass a handle and
+/// read the totals back out after a run.
+pub async fn spawn_endpoint_metered(
+    config: IrohEndpointConfig,
+    counters: Option<Arc<crate::metrics::TransportCounters>>,
+) -> crate::error::Result<(
+    mpsc::Sender<IrohCommand>,
+    mpsc::Receiver<TransportEvent<iroh::endpoint::SendStream>>,
+    Arc<ReplicatorRegistry>,
+    JoinHandle<()>,
+)> {
     let mut alpns: Vec<Vec<u8>> = protocols::ALL_ALPNS.iter().map(|a| a.to_vec()).collect();
     alpns.push(iroh_gossip::net::GOSSIP_ALPN.to_vec());
 
@@ -162,6 +180,7 @@ pub async fn spawn_endpoint(
         command_rx,
         event_tx,
         replicators.clone(),
+        counters,
     ));
 
     Ok((command_tx, event_rx, replicators, task))
@@ -175,6 +194,7 @@ async fn run_event_loop(
     mut command_rx: mpsc::Receiver<IrohCommand>,
     event_tx: mpsc::Sender<TransportEvent<iroh::endpoint::SendStream>>,
     replicators: Arc<ReplicatorRegistry>,
+    counters: Option<Arc<crate::metrics::TransportCounters>>,
 ) {
     let shutdown_started = std::time::Instant::now();
     let peer_map = Arc::new(parking_lot::Mutex::new(PeerMap::new()));
@@ -200,6 +220,7 @@ async fn run_event_loop(
         connection_cache: Arc::clone(&connection_cache),
         healer: Arc::new(GossipHealer::new(gossip_heal_config)),
         spawned_tasks: Arc::clone(&spawned_tasks),
+        counters,
     };
 
     // Emit Listening event with our endpoint address
