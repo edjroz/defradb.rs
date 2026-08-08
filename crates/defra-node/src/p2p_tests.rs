@@ -84,17 +84,24 @@ async fn build_persistent_p2p_node(data_path: PathBuf, secret_key_path: PathBuf)
         .expect("build persistent P2P node")
 }
 
+/// An address of `node` that another node can actually dial.
+///
+/// Deliberately not `listen_addresses().first()`. That list leads with direct
+/// addresses in whatever order iroh enumerated them, and the host's LAN
+/// address is discovered shortly after start and sorts ahead of loopback.
+/// Test nodes bind loopback only, so a test that dials the first entry late
+/// enough dials a socket nothing is listening on and times out.
 pub(crate) async fn wait_for_listen_addr(node: &EmbeddedNode) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let addrs = node
+        let addr = node
             .p2p()
             .expect("P2P should be enabled")
-            .listen_addresses()
+            .shareable_address()
             .await
-            .expect("listen_addresses should succeed");
-        if let Some(addr) = addrs.first() {
-            return addr.clone();
+            .expect("shareable_address should succeed");
+        if let Some(addr) = addr {
+            return addr;
         }
         assert!(
             Instant::now() < deadline,
