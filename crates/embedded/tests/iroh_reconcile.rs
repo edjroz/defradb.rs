@@ -11,82 +11,17 @@
 
 #![cfg(feature = "iroh")]
 
-use std::collections::BTreeSet;
-use std::net::{IpAddr, Ipv4Addr};
+mod reconcile_support;
 
-use anyhow::{anyhow, bail, Context, Result};
-use cid::Cid;
+use anyhow::{Context, Result};
 use embedded::reconcile_ops::ReconcileOutcome;
-use embedded::{EmbeddedNode, EmbeddedStore, IrohConfig, ManagedP2PSystem, NodeBuilder};
-use tokio::time::{sleep, Duration, Instant};
+use embedded::NodeBuilder;
+use tokio::time::{sleep, Duration};
 
-const NOTE_SDL: &str = "type Note { body: String }";
-const COLLECTION: &str = "Note";
-
-struct Pair {
-    initiator: EmbeddedNode<EmbeddedStore>,
-    responder: EmbeddedNode<EmbeddedStore>,
-    responder_peer_id: String,
-}
-
-impl Pair {
-    /// Two reconcile-enabled nodes, connected, with no collection subscription
-    /// and no replicator: there is no gossip or push route between them.
-    async fn connected() -> Result<Self> {
-        let initiator = NodeBuilder::default()
-            .with_iroh(test_iroh_config())
-            .with_reconcile()
-            .build()
-            .await?;
-        let responder = NodeBuilder::default()
-            .with_iroh(test_iroh_config())
-            .with_reconcile()
-            .build()
-            .await?;
-
-        initiator.add_schema(NOTE_SDL).await?;
-        responder.add_schema(NOTE_SDL).await?;
-
-        let initiator_p2p = p2p_of(&initiator)?;
-        let responder_p2p = p2p_of(&responder)?;
-
-        let responder_peer_id = responder_p2p
-            .ops()
-            .local_peer_id()
-            .await
-            .map_err(|error| anyhow!(error))?;
-        let responder_addr = wait_for_listen_addr(&responder_p2p).await?;
-
-        initiator_p2p
-            .ops()
-            .connect_peer(&responder_addr)
-            .await
-            .map_err(|error| anyhow!(error))?;
-        wait_for_connected_peer(&initiator_p2p, &responder_peer_id).await?;
-
-        Ok(Self {
-            initiator,
-            responder,
-            responder_peer_id,
-        })
-    }
-
-    async fn reconcile(&self) -> Result<ReconcileOutcome> {
-        p2p_of(&self.initiator)?
-            .reconciler()
-            .context("initiator has no reconciler installed")?
-            .reconcile_collection(&self.responder_peer_id, COLLECTION)
-            .await
-    }
-
-    async fn shutdown(self) -> Result<()> {
-        p2p_of(&self.initiator)?.shutdown().await;
-        p2p_of(&self.responder)?.shutdown().await;
-        self.initiator.database.close().await?;
-        self.responder.database.close().await?;
-        Ok(())
-    }
-}
+use reconcile_support::{
+    add_note, connect, has_note, heads_missing_from, p2p_of, set, test_iroh_config, wait_for_note,
+    Pair, COLLECTION, NOTE_SDL,
+};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_zero_diff_session_discovers_nothing() -> Result<()> {
@@ -255,18 +190,7 @@ async fn a_flag_off_node_refuses_a_session() -> Result<()> {
         "a flag-off node must not expose a reconciler"
     );
 
-    let responder_peer_id = responder_p2p
-        .ops()
-        .local_peer_id()
-        .await
-        .map_err(|error| anyhow!(error))?;
-    let responder_addr = wait_for_listen_addr(&responder_p2p).await?;
-    initiator_p2p
-        .ops()
-        .connect_peer(&responder_addr)
-        .await
-        .map_err(|error| anyhow!(error))?;
-    wait_for_connected_peer(&initiator_p2p, &responder_peer_id).await?;
+    let responder_peer_id = connect(&initiator_p2p, &responder_p2p).await?;
 
     let result = initiator_p2p
         .reconciler()
@@ -283,135 +207,4 @@ async fn a_flag_off_node_refuses_a_session() -> Result<()> {
     initiator.database.close().await?;
     responder.database.close().await?;
     Ok(())
-}
-
-fn test_iroh_config() -> IrohConfig {
-    IrohConfig {
-        bind_addr: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
-        bind_port: Some(0),
-        relay_mode: p2p::iroh::IrohRelayModeConfig::Disabled,
-        discovery: p2p::iroh::IrohDiscoveryConfig::Disabled,
-        max_concurrent_multipath_paths: None,
-        secret_key_path: None,
-    }
-}
-
-fn p2p_of(node: &EmbeddedNode<EmbeddedStore>) -> Result<std::sync::Arc<ManagedP2PSystem>> {
-    node.p2p().cloned().context("node has no p2p system")
-}
-
-fn set(cids: &[Cid]) -> BTreeSet<Cid> {
-    cids.iter().copied().collect()
-}
-
-/// The head CIDs `other` holds that `node` does not — the true difference the
-/// session is measured against, read straight from both stores.
-async fn heads_missing_from(
-    node: &EmbeddedNode<EmbeddedStore>,
-    other: &EmbeddedNode<EmbeddedStore>,
-) -> Result<BTreeSet<Cid>> {
-    let mine = heads(node).await?;
-    Ok(heads(other).await?.difference(&mine).copied().collect())
-}
-
-async fn heads(node: &EmbeddedNode<EmbeddedStore>) -> Result<BTreeSet<Cid>> {
-    use p2p::reconcile::ItemSource;
-    use p2p::sync::ReconcileSourceProvider;
-
-    let source = db_merge::create_reconcile_source(node.database.clone())
-        .snapshot(COLLECTION)
-        .await
-        .map_err(|error| anyhow!("failed to read heads: {error}"))?;
-    (0..source.len())
-        .map(|index| {
-            Cid::try_from(source.id(index).as_bytes())
-                .map_err(|error| anyhow!("head is not a CID: {error}"))
-        })
-        .collect()
-}
-
-async fn add_note(node: &EmbeddedNode<EmbeddedStore>, body: &str) -> Result<()> {
-    let response = node
-        .execute(&format!(
-            r#"mutation {{ add_Note(input: {{body: "{body}"}}) {{ _docID }} }}"#
-        ))
-        .await;
-    if response.has_errors() {
-        bail!("add_Note failed: {:?}", response.errors);
-    }
-    Ok(())
-}
-
-async fn has_note(node: &EmbeddedNode<EmbeddedStore>, body: &str) -> Result<bool> {
-    let response = node.execute("query { Note { body } }").await;
-    if response.has_errors() {
-        bail!("Note query failed: {:?}", response.errors);
-    }
-    Ok(response
-        .data
-        .as_ref()
-        .and_then(|data| data.get("Note"))
-        .and_then(|notes| notes.as_array())
-        .map(|notes| {
-            notes
-                .iter()
-                .any(|note| note.get("body").and_then(|value| value.as_str()) == Some(body))
-        })
-        .unwrap_or(false))
-}
-
-async fn wait_for_note(node: &EmbeddedNode<EmbeddedStore>, body: &str) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    loop {
-        if has_note(node, body).await? {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            bail!("timed out waiting for reconciled document '{body}'");
-        }
-        sleep(Duration::from_millis(200)).await;
-    }
-}
-
-async fn wait_for_listen_addr(system: &ManagedP2PSystem) -> Result<String> {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let addrs = system
-            .ops()
-            .listen_addresses()
-            .await
-            .map_err(|error| anyhow!(error))?;
-        if let Some(addr) = addrs
-            .into_iter()
-            .find(|addr| addr.contains("/p2p/") || addr.starts_with("endpoint"))
-        {
-            return Ok(addr);
-        }
-        if Instant::now() >= deadline {
-            bail!("timed out waiting for a direct iroh listen address");
-        }
-        sleep(Duration::from_millis(100)).await;
-    }
-}
-
-async fn wait_for_connected_peer(system: &ManagedP2PSystem, peer_id: &str) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let peers = system
-            .ops()
-            .connected_peers()
-            .await
-            .map_err(|error| anyhow!(error))?;
-        if peers.iter().any(|peer| {
-            p2p::iroh::parse_public_peer_addr(peer)
-                .map(|(parsed, _)| parsed.as_str() == peer_id)
-                .unwrap_or_else(|_| peer.contains(peer_id))
-        }) {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            bail!("timed out waiting for a connection to {peer_id}");
-        }
-        sleep(Duration::from_millis(100)).await;
-    }
 }
