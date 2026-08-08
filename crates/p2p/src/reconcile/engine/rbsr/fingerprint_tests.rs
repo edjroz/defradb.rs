@@ -69,6 +69,31 @@ fn empty_fingerprint_matches_the_pinned_go_vector() {
     assert_eq!(Accumulator::default().finalize(), Fingerprint::EMPTY);
 }
 
+/// Cross-implementation vectors, produced by running the Go reference's own
+/// `FingerprintOf` over `SHA256(bigEndian64(i))` for `i` in `0..n`. If the
+/// fingerprint ever stops matching these, two nodes stop agreeing on what a
+/// range contains and the phase 3 comparison is measuring different protocols.
+#[test]
+fn fingerprints_match_the_go_reference_vectors() {
+    const VECTORS: [(u64, &str); 6] = [
+        (1, "2c993803505a339bf219b76f3c2ff4c7"),
+        (2, "bf33a8abd7dfe04feef8335ddfa0092e"),
+        (7, "553a45ecd10a595bc5efa8057f53fec9"),
+        (64, "fc0b851ff0ee6a1391f487270c7f890b"),
+        (257, "abc4b96501bf2308ccdbbe96576ac0d1"),
+        (1000, "e868e4f7cc2d5f18b2f01f417f02e0fe"),
+    ];
+
+    for (n, expected) in VECTORS {
+        let ids: Vec<ItemId> = (0..n).map(id).collect();
+        assert_eq!(
+            hex::encode(Fingerprint::of(ids.iter()).as_bytes()),
+            expected,
+            "n={n}"
+        );
+    }
+}
+
 #[test]
 fn fingerprint_is_order_independent() {
     let ids: Vec<ItemId> = (0..32u64).map(id).collect();

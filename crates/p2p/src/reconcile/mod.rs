@@ -23,7 +23,9 @@
 //! - Sort key `heightBE8 || id`, so the keyspace is ordered by causal layer and
 //!   then hash-ordered within a layer.
 //! - Fingerprint `SHA256( (Σ SHA256(id)) mod 2^256 || uvarint(count) )[..16]`,
-//!   including the count fold that defeats additive cancellation.
+//!   including the count fold that defeats additive cancellation. Checked, not
+//!   assumed: `fingerprint_tests.rs` pins six vectors produced by running the Go
+//!   reference's own `FingerprintOf`.
 //! - Caps: branching factor 16, ID-list threshold 64, max IDs per range 64, max
 //!   ranges per message 16384 (see [`engine::rbsr::caps`]) and max rounds 32
 //!   (see [`session::MAX_ROUNDS`]). Phase 1's measurements found no reason to
