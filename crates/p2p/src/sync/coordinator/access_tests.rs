@@ -43,7 +43,7 @@ use super::{
     DEFAULT_MAX_DOC_SYNC_REQUEST_DOC_IDS,
 };
 
-type TestBlockstore = DefraBlockstore<MemoryStore>;
+pub(super) type TestBlockstore = DefraBlockstore<MemoryStore>;
 type TwoStreamHandler = Arc<
     dyn Fn(
             PeerId,
@@ -120,7 +120,7 @@ fn create_test_coordinator_with_rate_limiter(
     )
 }
 
-fn create_test_coordinator_with_sync_config(
+pub(super) fn create_test_coordinator_with_sync_config(
     access_mode: AccessMode,
     replicators: Arc<ReplicatorRegistry>,
     peer_state: Arc<PeerStateTracker>,
@@ -256,6 +256,7 @@ fn create_test_coordinator_with_blockstore_and_head_provider<B: Blockstore + 'st
         rate_limiter,
     } = params;
 
+    let reconcile_enabled = sync_config.reconcile_enabled;
     let (manager, events) = SyncManager::new(blockstore, peer_state.clone(), sync_config);
 
     let authorizer = Arc::new(RuntimeAuthorizer::new(
@@ -268,7 +269,7 @@ fn create_test_coordinator_with_blockstore_and_head_provider<B: Blockstore + 'st
     let coordinator = SyncCoordinator {
         reconcile_source: std::sync::OnceLock::new(),
         runtime: SyncRuntime {
-            reconcile_enabled: false,
+            reconcile_enabled,
             transport,
             broadcaster,
             failure_tx: Arc::new(parking_lot::Mutex::new(None)),
@@ -411,7 +412,7 @@ impl Blockstore for ConflictOnceBlockstore {
 }
 
 #[derive(Clone)]
-struct NoopTransport {
+pub(super) struct NoopTransport {
     peer_id: PeerId,
     pubkey: Vec<u8>,
     replicators: Arc<RwLock<std::collections::HashMap<String, Vec<String>>>>,

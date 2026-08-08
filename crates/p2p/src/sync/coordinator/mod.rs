@@ -708,6 +708,10 @@ pub type IrohSyncCoordinator<B> = SyncCoordinator<B, crate::iroh::IrohTransport>
 mod access_tests;
 
 #[cfg(test)]
+#[path = "reconcile_handler_tests.rs"]
+mod reconcile_handler_tests;
+
+#[cfg(test)]
 mod dag_fetch_limiter_tests {
     use super::DagFetchLimiter;
     use crate::transport::PeerId;

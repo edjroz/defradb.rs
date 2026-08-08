@@ -11,6 +11,7 @@ use std::sync::Arc;
 use blockstore::Blockstore;
 use cid::Cid;
 
+use super::super::access::check_collection_access;
 use super::super::dag_context::DagFetchContext;
 use super::super::SyncCoordinator;
 use crate::error::{Error, Result};
@@ -60,21 +61,36 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
 
     /// Serves a session a peer opened.
     ///
-    /// The whole session, including reading the peer's opening frame, runs on
-    /// its own task. Reading even that first frame on the transport's event
-    /// loop would let one peer that opens a stream and says nothing stall every
-    /// other event the node has to handle.
+    /// A session hands the peer the collection's whole head set, so it is gated
+    /// like its two siblings: DocSync's any-collection check here, and
+    /// BranchableSync's collection-scoped check once the peer's opening frame
+    /// has named a collection. The second one necessarily happens on the
+    /// session's own task, because reading even that first frame on the
+    /// transport's event loop would let one silent peer stall every other event
+    /// the node has to handle.
     pub(crate) async fn handle_reconcile_session(
         &self,
         peer_id: PeerId,
         mut stream: Box<dyn ReconcileStream>,
     ) -> Result<()> {
         self.ensure_reconcile_enabled()?;
+        self.check_peer_is_replicator(&peer_id).await?;
+
         let source = self.reconcile_source()?;
+        let peer_state = Arc::clone(&self.access.peer_state);
+        let authorizer = Arc::clone(&self.authorizer);
 
         self.spawn_background_task("reconcile_serve_session", async move {
             let served = async {
                 let collection_id = reconcile::accept(stream.as_mut()).await?;
+                check_collection_access(
+                    peer_state.as_ref(),
+                    authorizer.as_ref(),
+                    peer_id.as_str(),
+                    &collection_id,
+                )
+                .await?;
+
                 let local = source.snapshot(&collection_id).await?;
                 let cost = reconcile::serve(stream.as_mut(), local).await?;
                 Ok::<_, Error>((collection_id, cost))

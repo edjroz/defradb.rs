@@ -13,7 +13,44 @@ use super::authorizer::AccessAuthorizer;
 use super::SyncCoordinator;
 use crate::bitswap::AccessMode;
 use crate::error::{Error, Result};
+use crate::sync::peer_state::PeerStateTracker;
 use crate::transport::{P2PTransport, PeerId};
+
+/// The collection-scoped ingress check, in a form that does not borrow the
+/// coordinator.
+///
+/// A reconciliation session learns its collection only after its first frame
+/// has been read, which happens on the session's own task; taking the two
+/// pieces of state by reference lets that task make exactly the same decision
+/// [`SyncCoordinator::check_access_str`] makes, rather than a second copy of
+/// the policy that could drift from it.
+pub(super) async fn check_collection_access(
+    peer_state: &PeerStateTracker,
+    authorizer: &dyn AccessAuthorizer,
+    peer_id_str: &str,
+    collection_id: &str,
+) -> Result<()> {
+    if peer_state.is_connected(peer_id_str) {
+        return Ok(());
+    }
+
+    if authorizer
+        .peer_authorized_for_collection(peer_id_str, collection_id)
+        .await
+    {
+        return Ok(());
+    }
+
+    tracing::warn!(
+        peer_id = %peer_id_str,
+        collection_id = %collection_id,
+        "Access denied: peer is not a replicator for this collection"
+    );
+    Err(Error::AccessDenied {
+        peer_id: peer_id_str.to_string(),
+        collection_id: collection_id.to_string(),
+    })
+}
 
 impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
     /// Returns true when this node has joined the collection's sync topic.
@@ -79,27 +116,13 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
         peer_id_str: &str,
         collection_id: &str,
     ) -> Result<()> {
-        if self.access.peer_state.is_connected(peer_id_str) {
-            return Ok(());
-        }
-
-        if self
-            .authorizer
-            .peer_authorized_for_collection(peer_id_str, collection_id)
-            .await
-        {
-            return Ok(());
-        }
-
-        tracing::warn!(
-            peer_id = %peer_id_str,
-            collection_id = %collection_id,
-            "Access denied: peer is not a replicator for this collection"
-        );
-        Err(Error::AccessDenied {
-            peer_id: peer_id_str.to_string(),
-            collection_id: collection_id.to_string(),
-        })
+        check_collection_access(
+            self.access.peer_state.as_ref(),
+            self.authorizer.as_ref(),
+            peer_id_str,
+            collection_id,
+        )
+        .await
     }
 
     /// Returns true only when the peer is explicitly registered as a
