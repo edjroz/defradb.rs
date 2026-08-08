@@ -22,6 +22,8 @@ mod push_docs_replay;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod push_docs_transport;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod reconcile_source;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod replication;
 pub mod se;
 #[cfg(not(target_arch = "wasm32"))]
@@ -59,7 +61,7 @@ pub use push_docs_transport::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use replication::{
     attach_failure_channel, create_acp_merge_handler, create_broadcast_mutator,
-    create_head_provider, create_merge_handler, create_replication_stack,
+    create_head_provider, create_merge_handler, create_reconcile_source, create_replication_stack,
     load_document_head_blocks, load_persisted_collections, ReplicationStack,
 };
 pub use se::{

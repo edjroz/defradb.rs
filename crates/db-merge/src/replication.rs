@@ -34,6 +34,13 @@ pub fn create_head_provider<S: Store>(db: Arc<DB<S>>) -> DbHeadProvider<S> {
     DbHeadProvider::new(db)
 }
 
+/// Build the reconciliation source over a database.
+pub fn create_reconcile_source<S: Store>(
+    db: Arc<DB<S>>,
+) -> crate::reconcile_source::DbReconcileSource<S> {
+    crate::reconcile_source::DbReconcileSource::new(db)
+}
+
 pub fn create_merge_handler<S: Store, B: Blockstore + Send + Sync>(
     db: Arc<DB<S>>,
     blockstore: Arc<B>,
