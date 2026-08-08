@@ -119,32 +119,61 @@ async fn baseline_m2_per_collection() {
     assert_converged(&rows);
 }
 
-/// M5: collection-size sweep with exactly one changed document. The whole
-/// point of set reconciliation is that this cost should not grow with `n`.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "benchmark: five two-node runs, minutes not seconds"]
-async fn baseline_m5_size_sweep() {
-    let mut rows = Vec::new();
-    for docs in [50, 100, 200, 500, 1000] {
-        let run = tiny_diff(docs, 1).await;
-        record(&format!("m5_onedocchanged_docs{docs}"), &run);
-        rows.extend(run);
-    }
-    record("m5_size_sweep", &rows);
-    assert_converged(&rows);
+/// One sweep point per test, because a node pair does not fully release its
+/// iroh endpoint when the pair shuts down: the third or fourth pair built in
+/// the same process cannot be dialled any more and the run dies part-way,
+/// taking the points already measured with it. A test each keeps every point
+/// in its own process, so one failure costs one row.
+macro_rules! sweep_point {
+    ($name:ident, $file:literal, $docs:literal, $diverged:literal) => {
+        #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+        #[ignore = "benchmark: builds two iroh nodes and waits for real convergence"]
+        async fn $name() {
+            let rows = tiny_diff($docs, $diverged).await;
+            record($file, &rows);
+            assert_converged(&rows);
+        }
+    };
 }
 
-/// Difference sweep at a fixed collection size: how the default path's cost
-/// responds to how much actually differs.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "benchmark: six two-node runs over 500-document collections"]
-async fn baseline_diffsweep_docs500() {
-    let mut rows = Vec::new();
-    for diverged in [1, 10, 50, 100, 250, 500] {
-        let run = tiny_diff(500, diverged).await;
-        record(&format!("diffsweep_docs500_diff{diverged}"), &run);
-        rows.extend(run);
-    }
-    record("diffsweep_docs500", &rows);
-    assert_converged(&rows);
-}
+// M5: collection-size sweep with exactly one changed document. The whole point
+// of set reconciliation is that this cost should not grow with `n`.
+sweep_point!(baseline_m5_docs50, "m5_onedocchanged_docs50", 50, 1);
+sweep_point!(baseline_m5_docs100, "m5_onedocchanged_docs100", 100, 1);
+sweep_point!(baseline_m5_docs200, "m5_onedocchanged_docs200", 200, 1);
+sweep_point!(baseline_m5_docs500, "m5_onedocchanged_docs500", 500, 1);
+sweep_point!(baseline_m5_docs1000, "m5_onedocchanged_docs1000", 1000, 1);
+
+// Difference sweep at a fixed collection size: how the default path's cost
+// responds to how much actually differs.
+sweep_point!(baseline_diffsweep_diff1, "diffsweep_docs500_diff1", 500, 1);
+sweep_point!(
+    baseline_diffsweep_diff10,
+    "diffsweep_docs500_diff10",
+    500,
+    10
+);
+sweep_point!(
+    baseline_diffsweep_diff50,
+    "diffsweep_docs500_diff50",
+    500,
+    50
+);
+sweep_point!(
+    baseline_diffsweep_diff100,
+    "diffsweep_docs500_diff100",
+    500,
+    100
+);
+sweep_point!(
+    baseline_diffsweep_diff250,
+    "diffsweep_docs500_diff250",
+    500,
+    250
+);
+sweep_point!(
+    baseline_diffsweep_diff500,
+    "diffsweep_docs500_diff500",
+    500,
+    500
+);
