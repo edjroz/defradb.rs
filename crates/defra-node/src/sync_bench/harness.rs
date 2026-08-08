@@ -16,22 +16,28 @@ const SDL: &str = "type BenchDoc { name: String value: Int }";
 const COLLECTION: &str = "BenchDoc";
 
 /// Overall budget for one scenario's convergence, across all rounds.
-const CONVERGENCE_TIMEOUT: Duration = Duration::from_secs(300);
+const CONVERGENCE_TIMEOUT: Duration = Duration::from_secs(900);
 
-/// A single `sync_documents` call has its own internal deadline and returns
-/// having dispatched only part of a large document set, so the reader is
-/// driven to a fixpoint over rounds — the same shape the Go harness used.
-const MAX_ROUNDS: u32 = 20;
+/// A single `sync_documents` call is bounded by its own deadline, so the reader
+/// is driven to a fixpoint over rounds — the same shape the Go harness used.
+const MAX_ROUNDS: u32 = 80;
 
-/// Rounds that may pass without the divergent set shrinking before the driver
-/// gives up. The per-peer rate limiter refills over seconds, so a round can
-/// legitimately recover nothing and the next one recover hundreds of
-/// documents; this has to be loose enough to ride that out.
-const MAX_STALLED_ROUNDS: u32 = 6;
+/// How long the divergent set may stand still before the driver gives up.
+///
+/// This is a duration and not a round count on purpose. A receiving node holds
+/// rejected pending-DAG registrations until they expire, and only then can the
+/// next batch be admitted, so progress arrives in waves separated by that
+/// expiry. A round-count budget silently shrinks the wait whenever rounds get
+/// cheaper; a duration does not.
+const NO_PROGRESS_BUDGET: Duration = Duration::from_secs(400);
 
-/// How long one round waits for the reader to catch up before the next round
-/// re-requests. Long enough that a round is not cut short mid-fetch.
+/// Upper bound on how long one round waits for the reader to catch up.
 const ROUND_SETTLE: Duration = Duration::from_secs(20);
+
+/// How long the divergent set must hold steady before a round is considered
+/// finished. `sync_documents` already waits for its own merges, so this only
+/// has to cover the lag between a merge and the query seeing it.
+const ROUND_STABLE: Duration = Duration::from_secs(2);
 
 /// Convergence poll interval. Bounds the resolution of every `wallMs` here: a
 /// reported time can overshoot the true one by up to this much.
@@ -139,7 +145,7 @@ impl NodePair {
         let mut rounds = 0;
         let mut converged = false;
         let mut pending: Vec<String> = doc_ids.to_vec();
-        let mut stalled = 0;
+        let mut last_progress = Instant::now();
         while rounds < MAX_ROUNDS && started.elapsed() < CONVERGENCE_TIMEOUT {
             rounds += 1;
             let before = pending.len();
@@ -157,13 +163,13 @@ impl NodePair {
                 converged = true;
                 break;
             }
-            stalled = if pending.len() < before {
-                0
-            } else {
-                stalled + 1
-            };
-            if stalled >= MAX_STALLED_ROUNDS {
-                println!("  {scenario}: no progress in {stalled} rounds, stopping");
+            if pending.len() < before {
+                last_progress = Instant::now();
+            } else if last_progress.elapsed() >= NO_PROGRESS_BUDGET {
+                println!(
+                    "  {scenario}: no progress for {}s, stopping",
+                    last_progress.elapsed().as_secs()
+                );
                 break;
             }
         }
@@ -208,21 +214,28 @@ impl NodePair {
             .collect()
     }
 
-    /// Poll one round's settle window, returning the documents the nodes still
-    /// disagree on. An empty result means converged.
+    /// Wait out one round, returning the documents the nodes still disagree on.
+    /// An empty result means converged.
     ///
-    /// The next round re-requests only those, because a single
-    /// `sync_documents` call is bounded by its own deadline and re-sending the
-    /// whole list would stall in the same place every time.
+    /// Returns as soon as the divergent set holds steady for [`ROUND_STABLE`],
+    /// so a sweep of many chunked rounds does not pay the full settle window
+    /// each time.
     async fn settle(&self, doc_ids: &[String]) -> Vec<String> {
         let deadline = Instant::now() + ROUND_SETTLE;
-        loop {
-            let pending = self.divergent(doc_ids).await;
-            if pending.is_empty() || Instant::now() >= deadline {
-                return pending;
-            }
+        let mut pending = self.divergent(doc_ids).await;
+        let mut steady_since = Instant::now();
+        while !pending.is_empty() && Instant::now() < deadline {
             tokio::time::sleep(POLL_INTERVAL).await;
+            let current = self.divergent(doc_ids).await;
+            if current.len() != pending.len() {
+                steady_since = Instant::now();
+            }
+            pending = current;
+            if steady_since.elapsed() >= ROUND_STABLE {
+                break;
+            }
         }
+        pending
     }
 
     pub(crate) async fn shutdown(self) {
