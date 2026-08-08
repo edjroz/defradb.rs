@@ -12,6 +12,9 @@ use crate::reconcile::{
 };
 
 /// Opens a session against a peer and runs it to convergence.
+///
+/// Convergence here is the local side's: this node ends knowing its full
+/// difference from the peer. The peer learns nothing and changes nothing.
 pub async fn initiate(
     stream: &mut (impl ReconcileStream + ?Sized),
     collection_id: &str,

@@ -91,7 +91,7 @@ async fn a_one_sided_update_is_discovered_and_fetched() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn bidirectional_divergence_is_discovered_in_both_directions() -> Result<()> {
+async fn bidirectional_divergence_is_discovered_but_only_pulled_one_way() -> Result<()> {
     let pair = Pair::connected().await?;
     for body in ["shared-a", "shared-b", "shared-c"] {
         add_note(&pair.initiator, body).await?;
@@ -108,6 +108,16 @@ async fn bidirectional_divergence_is_discovered_in_both_directions() -> Result<(
     assert_eq!(set(&outcome.have), expected_have, "have must be exact");
 
     wait_for_note(&pair.initiator, "only-on-responder").await?;
+
+    // One session makes the initiator whole and leaves the responder as it was.
+    // The `have` set above says what the responder is missing; acting on it is
+    // delivery, which reconciliation deliberately does not do. The responder
+    // converges by running a session of its own.
+    assert!(
+        !has_note(&pair.responder, "only-on-initiator").await?,
+        "a session must not push: the responder converges only on its own turn"
+    );
+
     pair.shutdown().await
 }
 

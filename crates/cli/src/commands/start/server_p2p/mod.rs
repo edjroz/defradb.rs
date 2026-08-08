@@ -186,7 +186,7 @@ impl Node {
         }
     }
 
-    fn sync_config(config: &Config) -> p2p::sync::SyncConfig {
+    pub(super) fn sync_config(config: &Config) -> p2p::sync::SyncConfig {
         p2p::sync::SyncConfig {
             rate_limit_burst: config.net.p2p_rate_limit_burst,
             rate_limit_rate: config.net.p2p_rate_limit_rate,
@@ -198,5 +198,93 @@ impl Node {
             reconcile_enabled: config.net.p2p_reconcile_enabled,
             ..Default::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod reconcile_flag_tests {
+    use super::super::node::Node;
+    use crate::commands::start::StartArgs;
+    use crate::config::Config;
+
+    /// The flag reaches three places, in two files, none of which the other
+    /// tests cover: the endpoint's ALPN offer, the coordinator's own gate, and
+    /// the branch that installs a reconciliation source at all. A flag that
+    /// flipped only some of them would leave a node that either advertises a
+    /// protocol it refuses to serve or serves one it never advertised.
+    /// Parses through clap so the flag's own surface — its name, its
+    /// `--flag=value` form and its bare form — is covered too, not just the
+    /// assignment behind it.
+    #[derive(clap::Parser)]
+    struct Wrapper {
+        #[command(flatten)]
+        args: StartArgs,
+    }
+
+    fn config_from(argv: &[&str]) -> Config {
+        let mut config = Config::default();
+        let mut full = vec!["defradb-start"];
+        full.extend_from_slice(argv);
+        <Wrapper as clap::Parser>::parse_from(full)
+            .args
+            .apply_to_config(&mut config)
+            .unwrap();
+        config
+    }
+
+    #[test]
+    fn the_flag_defaults_off_everywhere() {
+        let config = config_from(&[]);
+        assert!(!config.net.p2p_reconcile_enabled);
+        assert!(!Node::sync_config(&config).reconcile_enabled);
+        #[cfg(feature = "iroh")]
+        assert!(
+            !Node::iroh_endpoint_config(&config, iroh_net::SecretKey::generate())
+                .unwrap()
+                .reconcile_enabled
+        );
+    }
+
+    #[test]
+    fn enabling_the_flag_flips_every_assignment_together() {
+        let config = config_from(&["--p2p-reconcile"]);
+        assert!(config.net.p2p_reconcile_enabled);
+        assert!(
+            Node::sync_config(&config).reconcile_enabled,
+            "the coordinator gate must follow the flag"
+        );
+        #[cfg(feature = "iroh")]
+        assert!(
+            Node::iroh_endpoint_config(&config, iroh_net::SecretKey::generate())
+                .unwrap()
+                .reconcile_enabled,
+            "the endpoint must offer the ALPN when the flag is on"
+        );
+    }
+
+    #[test]
+    fn disabling_the_flag_explicitly_overrides_a_config_file() {
+        let mut config = Config::default();
+        config.net.p2p_reconcile_enabled = true;
+        <Wrapper as clap::Parser>::parse_from(["defradb-start", "--p2p-reconcile=false"])
+            .args
+            .apply_to_config(&mut config)
+            .unwrap();
+        assert!(!config.net.p2p_reconcile_enabled);
+        assert!(!Node::sync_config(&config).reconcile_enabled);
+    }
+
+    #[test]
+    fn a_config_file_setting_survives_an_absent_flag() {
+        let mut config = Config::default();
+        config.net.p2p_reconcile_enabled = true;
+        <Wrapper as clap::Parser>::parse_from(["defradb-start"])
+            .args
+            .apply_to_config(&mut config)
+            .unwrap();
+        assert!(
+            config.net.p2p_reconcile_enabled,
+            "an unset flag must not clobber the config file"
+        );
     }
 }

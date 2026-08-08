@@ -29,18 +29,9 @@ impl Node {
 
         let iroh_secret_key = Self::iroh_secret_key(peer_keypair.as_ref())?;
         let (command_tx, mut iroh_events, replicator_registry, host_task) =
-            p2p::iroh::spawn_endpoint(p2p::iroh::IrohEndpointConfig {
-                secret_key: iroh_secret_key.clone(),
-                relay_mode: Self::iroh_relay_mode(config)?,
-                discovery: Self::iroh_discovery(config)?,
-                bind_port: config.net.iroh_bind_port,
-                bind_addr: config.net.iroh_bind_addr,
-                max_concurrent_multipath_paths: config.net.iroh_max_concurrent_multipath_paths,
-                gossip_heal: p2p::iroh::GossipHealConfig::from_env(),
-                reconcile_enabled: config.net.p2p_reconcile_enabled,
-            })
-            .await
-            .map_err(Error::P2P)?;
+            p2p::iroh::spawn_endpoint(Self::iroh_endpoint_config(config, iroh_secret_key.clone())?)
+                .await
+                .map_err(Error::P2P)?;
 
         let transport = p2p::iroh::IrohTransport::new(command_tx, iroh_secret_key);
         info!(
@@ -651,6 +642,24 @@ impl Node {
         } else {
             Ok(iroh_net::SecretKey::generate())
         }
+    }
+
+    /// The endpoint's configuration, extracted so the config-to-endpoint
+    /// mapping can be asserted without binding a socket.
+    pub(super) fn iroh_endpoint_config(
+        config: &Config,
+        secret_key: iroh_net::SecretKey,
+    ) -> Result<p2p::iroh::IrohEndpointConfig> {
+        Ok(p2p::iroh::IrohEndpointConfig {
+            secret_key,
+            relay_mode: Self::iroh_relay_mode(config)?,
+            discovery: Self::iroh_discovery(config)?,
+            bind_port: config.net.iroh_bind_port,
+            bind_addr: config.net.iroh_bind_addr,
+            max_concurrent_multipath_paths: config.net.iroh_max_concurrent_multipath_paths,
+            gossip_heal: p2p::iroh::GossipHealConfig::from_env(),
+            reconcile_enabled: config.net.p2p_reconcile_enabled,
+        })
     }
 
     fn iroh_relay_mode(config: &Config) -> Result<p2p::iroh::IrohRelayModeConfig> {
