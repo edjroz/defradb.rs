@@ -29,13 +29,6 @@ const NO_PROGRESS_BUDGET: Duration = Duration::from_secs(400);
 /// Upper bound on how long one round waits for the reader to catch up.
 const ROUND_SETTLE: Duration = Duration::from_secs(20);
 
-/// Dial attempts before a scenario is abandoned.
-///
-/// A sweep builds one node pair per size in the same process, and a later dial
-/// can time out even though the endpoint is healthy. Losing the whole sweep to
-/// one timeout costs more than retrying does.
-const DIAL_ATTEMPTS: u32 = 3;
-
 /// How long the divergent set must hold steady before a round is considered
 /// finished. `sync_documents` already waits for its own merges, so this only
 /// has to cover the lag between a merge and the query seeing it.
@@ -117,10 +110,13 @@ impl NodePair {
     /// `p2p_pull_tests::doc_sync_pull_delivers_documents_without_a_subscription`
     /// pins.
     pub(crate) async fn connect(&self) {
-        let writer_addr = listen_addr(&self.writer).await;
+        let writer_addr = dialable_addr(&self.writer).await;
         let reader_p2p = self.reader.p2p().expect("reader p2p");
 
-        dial_with_retry(reader_p2p, &writer_addr).await;
+        reader_p2p
+            .connect_peer(&writer_addr)
+            .await
+            .expect("connect reader -> writer");
         wait_for_peer(&self.writer).await;
         wait_for_peer(&self.reader).await;
     }
@@ -256,33 +252,28 @@ async fn build_node(counters: Arc<TransportCounters>) -> EmbeddedNode {
     node
 }
 
-/// Dial `addr`, retrying a timeout a few times before giving up.
-async fn dial_with_retry(p2p: &dyn defra_http::P2POperations, addr: &str) {
-    let mut last_error = None;
-    for attempt in 1..=DIAL_ATTEMPTS {
-        match p2p.connect_peer(addr).await {
-            Ok(()) => return,
-            Err(error) => {
-                println!("  dial attempt {attempt} failed: {error}");
-                last_error = Some(error);
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-        }
-    }
-    panic!("connect reader -> writer failed after {DIAL_ATTEMPTS} attempts: {last_error:?}");
-}
-
-async fn listen_addr(node: &EmbeddedNode) -> String {
+/// An address of `node` that a peer can actually dial.
+///
+/// Deliberately not `listen_addresses().first()`. That list is ordered direct
+/// addresses first, and which direct address leads is whichever one iroh
+/// enumerated first; the host's LAN address is discovered about half a second
+/// after start and sorts ahead of loopback. These nodes bind loopback only, so
+/// once that happens the first entry names a socket nothing is listening on and
+/// every dial to it burns the full timeout. `shareable_address` is the accessor
+/// that answers this question — it prefers a ticket carrying a dialable address
+/// — and its own documentation says callers should not have to guess which
+/// entry was meant for sharing.
+async fn dialable_addr(node: &EmbeddedNode) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let addrs = node
+        let addr = node
             .p2p()
             .expect("p2p enabled")
-            .listen_addresses()
+            .shareable_address()
             .await
-            .expect("listen_addresses");
-        if let Some(addr) = addrs.first() {
-            return addr.clone();
+            .expect("shareable_address");
+        if let Some(addr) = addr {
+            return addr;
         }
         assert!(Instant::now() < deadline, "node never listened");
         tokio::time::sleep(POLL_INTERVAL).await;
