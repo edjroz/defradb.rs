@@ -13,8 +13,23 @@
 //! needs and what it has that the peer lacks; the responder stays stateless.
 
 pub mod caps;
+mod engine;
 mod fingerprint;
+mod initiator;
 mod message;
+mod responder;
+mod segment_tree;
 
+pub use engine::{RbsrEngine, Role};
 pub use fingerprint::{Accumulator, Fingerprint, FINGERPRINT_LEN};
 pub use message::{Mode, Range, RbsrMessage};
+pub use segment_tree::SegmentTree;
+
+#[cfg(test)]
+mod simulate;
+
+#[cfg(test)]
+mod convergence_proptests;
+
+#[cfg(test)]
+mod protocol_tests;

@@ -57,6 +57,15 @@ pub enum ReconcileError {
         expected: u8,
     },
 
+    /// A peer's ID-list range carried more identities than the cap allows.
+    #[error("reconcile ID list of {size} entries exceeds the cap of {max}")]
+    IdListTooLarge {
+        /// Number of identities the peer sent.
+        size: usize,
+        /// The cap it exceeded.
+        max: usize,
+    },
+
     /// A frame exceeded the transport frame cap.
     #[error("reconciliation frame of {size} bytes exceeds the {max}-byte cap")]
     FrameTooLarge {

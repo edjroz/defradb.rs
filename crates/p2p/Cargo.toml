@@ -94,6 +94,7 @@ iroh-transport = ["dep:iroh", "dep:iroh-gossip", "dep:iroh-tickets", "dep:noq", 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 p2p = { path = ".", features = ["test-utils"] }
+proptest = { workspace = true }
 
 [package.metadata.cargo-machete]
 ignored = ["noq"]
