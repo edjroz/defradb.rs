@@ -14,6 +14,7 @@
 //! - [`host`] - P2P host that manages the swarm
 //! - [`transport`] - Transport-agnostic trait and types
 //! - [`topics`] - GossipSub topic definitions
+//! - [`reconcile`] - Transport-agnostic set reconciliation
 //! - [`error`] - Error types
 //!
 //! # Example
@@ -72,6 +73,7 @@ pub mod peer_identity;
 pub mod protocol;
 #[cfg(feature = "libp2p-transport")]
 pub mod pubsub_rpc;
+pub mod reconcile;
 pub mod replicator;
 pub mod se_correlator;
 pub mod signing;
