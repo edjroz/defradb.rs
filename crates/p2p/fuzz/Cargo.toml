@@ -8,7 +8,9 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
+libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
+arbitrary = { version = "1", features = ["derive"] }
+sha2 = "0.10"
 
 [dependencies.p2p]
 path = ".."
@@ -30,6 +32,13 @@ bench = false
 [[bin]]
 name = "reconcile_riblt"
 path = "fuzz_targets/reconcile_riblt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "reconcile_riblt_oracle"
+path = "fuzz_targets/reconcile_riblt_oracle.rs"
 test = false
 doc = false
 bench = false
