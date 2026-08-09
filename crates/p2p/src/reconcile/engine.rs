@@ -35,8 +35,38 @@
 //! carries a compiled shape stub exercising exactly that, so the claim is
 //! checked rather than asserted.
 
-use super::error::Result;
+use super::error::{ReconcileError, Result};
 use super::source::ItemId;
+
+/// Which reconciliation protocol a session runs.
+///
+/// A session's two peers must agree, and the initiator chooses: it names the
+/// engine in its opening frame and a responder that does not implement it
+/// refuses the session outright. Both engines produce the same [`Diff`] and hand
+/// it to the same fetch path, so the choice is about how the difference is
+/// found, never about what is done with it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum EngineKind {
+    /// Range-based reconciliation: deterministic, `O(log n)` interactive
+    /// rounds, and the only one that can scope a session to a sub-range.
+    #[default]
+    Rbsr = 0,
+    /// Rateless sketch reconciliation: `O(d)` bytes independent of set size, in
+    /// about half a round trip, at the cost of a probabilistic symbol count.
+    Riblt = 1,
+}
+
+impl EngineKind {
+    /// Reads an engine tag off the wire.
+    pub fn from_tag(tag: u8) -> Result<Self> {
+        match tag {
+            tag if tag == Self::Rbsr as u8 => Ok(Self::Rbsr),
+            tag if tag == Self::Riblt as u8 => Ok(Self::Riblt),
+            other => Err(ReconcileError::UnsupportedEngine { tag: other }),
+        }
+    }
+}
 
 /// What a peer message told the engine about the session's progress.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

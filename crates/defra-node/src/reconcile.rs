@@ -16,16 +16,18 @@ use blockstore::Blockstore;
 use p2p::sync::IrohSyncCoordinator;
 use p2p::transport::PeerId;
 
+pub use p2p::reconcile::EngineKind;
 pub use p2p::sync::ReconcileOutcome;
 
 /// Starts reconciliation sessions against peers.
 #[async_trait]
 pub trait ReconcileTrigger: Send + Sync {
-    /// Reconciles one collection against one peer.
+    /// Reconciles one collection against one peer with the named engine.
     async fn reconcile_collection(
         &self,
         peer_id: &str,
         collection: &str,
+        engine: EngineKind,
     ) -> Result<ReconcileOutcome>;
 }
 
@@ -46,10 +48,11 @@ impl<B: Blockstore + 'static> ReconcileTrigger for CoordinatorTrigger<B> {
         &self,
         peer_id: &str,
         collection: &str,
+        engine: EngineKind,
     ) -> Result<ReconcileOutcome> {
         let (diff, cost) = self
             .coordinator
-            .reconcile_collection(&PeerId::new(peer_id.to_string()), collection)
+            .reconcile_collection(&PeerId::new(peer_id.to_string()), collection, engine)
             .await
             .map_err(|error| anyhow!("reconciliation failed: {error}"))?;
 

@@ -18,7 +18,7 @@ use crate::bitswap::{AccessMode, ReplicatorRegistry};
 use crate::error::Error;
 use crate::reconcile::engine::rbsr::RbsrEngine;
 use crate::reconcile::stream::{MemoryStream, ReconcileStream};
-use crate::reconcile::{codec, Engine, Item, ItemId, MemorySource, SessionOpen};
+use crate::reconcile::{codec, Engine, EngineKind, Item, ItemId, MemorySource, SessionOpen};
 use crate::sync::manager::SyncConfig;
 use crate::sync::peer_state::PeerStateTracker;
 use crate::sync::reconcile::ReconcileSourceProvider;
@@ -75,7 +75,7 @@ async fn serve_session(
 
     let (mut peer_side, node_side) = MemoryStream::pair();
     peer_side
-        .send_frame(&codec::encode(&SessionOpen::new(collection_id)).unwrap())
+        .send_frame(&codec::encode(&SessionOpen::new(collection_id, EngineKind::Rbsr)).unwrap())
         .await
         .unwrap();
 

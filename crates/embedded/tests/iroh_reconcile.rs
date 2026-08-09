@@ -14,6 +14,7 @@
 mod reconcile_support;
 
 use anyhow::{Context, Result};
+use embedded::reconcile_ops::EngineKind;
 use embedded::NodeBuilder;
 use tokio::time::{sleep, Duration};
 
@@ -260,12 +261,125 @@ async fn a_flag_off_node_refuses_a_session() -> Result<()> {
     let result = initiator_p2p
         .reconciler()
         .context("initiator has no reconciler")?
-        .reconcile_collection(&responder_peer_id, COLLECTION)
+        .reconcile_collection(&responder_peer_id, COLLECTION, EngineKind::Rbsr)
         .await;
     assert!(
         result.is_err(),
         "a node that does not offer the reconcile ALPN must refuse the session"
     );
+
+    initiator_p2p.shutdown().await;
+    responder_p2p.shutdown().await;
+    initiator.database.close().await?;
+    responder.database.close().await?;
+    Ok(())
+}
+
+/// The rateless engine over the same transport, same gating, same handoff.
+///
+/// This is the phase's end-to-end claim: two real nodes converge one way
+/// through a RIBLT session, and the difference the session *discovered* is
+/// exactly the true difference — not a superset it happened to fetch. The
+/// no-gossip fixture above is what makes that attributable.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_riblt_session_discovers_the_true_difference() -> Result<()> {
+    let pair = Pair::connected().await?;
+    for index in 0..40 {
+        let body = format!("shared-{index}");
+        add_note(&pair.initiator, &body).await?;
+        add_note(&pair.responder, &body).await?;
+    }
+    for index in 0..7 {
+        add_note(&pair.responder, &format!("only-on-responder-{index}")).await?;
+    }
+    add_note(&pair.initiator, "only-on-initiator").await?;
+
+    let expected_need = heads_missing_from(&pair.initiator, &pair.responder).await?;
+    let expected_have = heads_missing_from(&pair.responder, &pair.initiator).await?;
+    assert_eq!(expected_need.len(), 7, "fixture must diverge by seven docs");
+
+    let outcome = pair.reconcile_with(EngineKind::Riblt).await?;
+    assert_eq!(
+        set(&outcome.need),
+        expected_need,
+        "the discovered need set must be exactly the true difference"
+    );
+    assert_eq!(set(&outcome.have), expected_have, "have must be exact too");
+
+    // The cost has to reach the caller for a RIBLT session as well: a campaign
+    // that can read one engine's session accounting and not the other's cannot
+    // compare them.
+    assert!(
+        outcome.bytes_sent > 0 && outcome.bytes_received > 0 && outcome.rounds > 0,
+        "a session must report what it cost, got {outcome:?}"
+    );
+
+    wait_for_note(&pair.initiator, "only-on-responder-0").await?;
+    assert!(
+        !has_note(&pair.responder, "only-on-initiator").await?,
+        "a session must not push, whichever engine found the difference"
+    );
+
+    pair.shutdown().await
+}
+
+/// Forty shared documents and nothing to find, over a stream that never learns
+/// how many there were: the sketch cancels them in its first cell.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_zero_diff_riblt_session_costs_almost_nothing() -> Result<()> {
+    let pair = Pair::connected().await?;
+    for index in 0..40 {
+        let body = format!("same-{index}");
+        add_note(&pair.initiator, &body).await?;
+        add_note(&pair.responder, &body).await?;
+    }
+
+    let outcome = pair.reconcile_with(EngineKind::Riblt).await?;
+    assert!(
+        outcome.need.is_empty() && outcome.have.is_empty(),
+        "identical sets must produce no difference, got {outcome:?}"
+    );
+    assert_eq!(outcome.rounds, 1, "agreement should settle in one round");
+    assert!(
+        outcome.bytes_sent + outcome.bytes_received < 1_024,
+        "a zero-diff session must be near-noop, cost {outcome:?}"
+    );
+
+    pair.shutdown().await
+}
+
+/// A peer that offers no reconciliation at all refuses a rateless session the
+/// same way it refuses a range one — an error from the dial, not a session that
+/// waits out its deadline.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_flag_off_node_refuses_a_riblt_session() -> Result<()> {
+    let initiator = NodeBuilder::default()
+        .with_iroh(test_iroh_config())
+        .with_reconcile()
+        .build()
+        .await?;
+    let responder = NodeBuilder::default()
+        .with_iroh(test_iroh_config())
+        .build()
+        .await?;
+
+    initiator.add_schema(NOTE_SDL).await?;
+    responder.add_schema(NOTE_SDL).await?;
+
+    let initiator_p2p = p2p_of(&initiator)?;
+    let responder_p2p = p2p_of(&responder)?;
+    let responder_peer_id = connect(&initiator_p2p, &responder_p2p).await?;
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(30),
+        initiator_p2p
+            .reconciler()
+            .context("initiator has no reconciler")?
+            .reconcile_collection(&responder_peer_id, COLLECTION, EngineKind::Riblt),
+    )
+    .await
+    .context("a rateless session against a flag-off peer did not terminate")?;
+    assert!(result.is_err(), "a flag-off node must refuse the session");
 
     initiator_p2p.shutdown().await;
     responder_p2p.shutdown().await;

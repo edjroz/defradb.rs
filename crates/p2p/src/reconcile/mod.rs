@@ -6,11 +6,22 @@
 //! no storage, though the drive loop does bound how long it waits on a peer. The
 //! engines read a local set through [`source::ItemSource`], speak through
 //! [`engine::Engine`], are driven by [`session::Session`], and are framed by
-//! [`codec`]. Nothing outside this module's own tests calls it yet; the
-//! transport binding and the headstore-backed `ItemSource` land with the next
-//! phase.
+//! [`codec`].
 //!
-//! # Provenance
+//! # Two engines, one seam
+//!
+//! [`engine::rbsr`] narrows an ordered keyspace over `O(log n)` interactive
+//! rounds; [`engine::riblt`] streams coded symbols whose cost is `O(d)` and
+//! independent of set size, in about half a round trip. They differ in almost
+//! everything — one needs a total order and the other needs none, one is
+//! deterministic and the other probabilistic — and agree on the two things that
+//! matter above this module: both produce a [`Diff`], and neither fetches,
+//! merges, or pushes anything. Which one a session runs is
+//! [`EngineKind`](engine::EngineKind), carried in the [`SessionOpen`] frame; a
+//! peer that does not implement the named engine refuses the session there,
+//! before it has read a set.
+//!
+//! # Provenance of the range engine
 //!
 //! The RBSR engine is a port of the Go reference implementation in
 //! `sourcenetwork/defradb`'s `internal/db/p2p/negentropy` package, which is
@@ -107,7 +118,7 @@ pub mod stream;
 
 pub use codec::{decode, encode, MessageKind, WireMessage, PROTOCOL_VERSION};
 pub use drive::{drive_initiator, drive_responder, SessionCost};
-pub use engine::{Diff, Engine, Progress};
+pub use engine::{Diff, Engine, EngineKind, Progress};
 pub use error::{ReconcileError, Result};
 pub use open::SessionOpen;
 pub use session::Session;

@@ -15,7 +15,7 @@ use super::super::access::check_collection_access;
 use super::super::dag_context::DagFetchContext;
 use super::super::SyncCoordinator;
 use crate::error::{Error, Result};
-use crate::reconcile::{Diff, ItemId, ReconcileStream, SessionCost};
+use crate::reconcile::{Diff, EngineKind, ItemId, ReconcileStream, SessionCost};
 use crate::sync::reconcile;
 use crate::transport::{P2PTransport, PeerId};
 
@@ -29,10 +29,15 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
     ///
     /// One session reconciles one direction: this node learns what it needs.
     /// Making both peers whole means running a session from each side.
+    ///
+    /// The engine is the caller's choice and travels in the opening frame; a
+    /// peer that does not implement it refuses the session with an error rather
+    /// than leaving the initiator waiting out its deadline.
     pub async fn reconcile_collection(
         &self,
         peer_id: &PeerId,
         collection_id: &str,
+        engine: EngineKind,
     ) -> Result<(Diff, SessionCost)> {
         self.ensure_reconcile_enabled()?;
 
@@ -43,10 +48,12 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
             .open_reconcile_session(peer_id)
             .await?;
 
-        let (diff, cost) = reconcile::initiate(stream.as_mut(), collection_id, local).await?;
+        let (diff, cost) =
+            reconcile::initiate(stream.as_mut(), collection_id, local, engine).await?;
         tracing::info!(
             peer_id = %peer_id,
             collection_id = %collection_id,
+            engine = ?engine,
             need = diff.need().len(),
             have = diff.have().len(),
             rounds = cost.rounds,
@@ -82,7 +89,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
 
         self.spawn_background_task("reconcile_serve_session", async move {
             let served = async {
-                let collection_id = reconcile::accept(stream.as_mut()).await?;
+                let (collection_id, engine) = reconcile::accept(stream.as_mut()).await?;
                 check_collection_access(
                     peer_state.as_ref(),
                     authorizer.as_ref(),
@@ -92,15 +99,16 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
                 .await?;
 
                 let local = source.snapshot(&collection_id).await?;
-                let cost = reconcile::serve(stream.as_mut(), local).await?;
-                Ok::<_, Error>((collection_id, cost))
+                let cost = reconcile::serve(stream.as_mut(), local, engine).await?;
+                Ok::<_, Error>((collection_id, engine, cost))
             }
             .await;
 
             match served {
-                Ok((collection_id, cost)) => tracing::info!(
+                Ok((collection_id, engine, cost)) => tracing::info!(
                     peer_id = %peer_id,
                     collection_id = %collection_id,
+                    engine = ?engine,
                     rounds = cost.rounds,
                     bytes_sent = cost.bytes_sent,
                     bytes_received = cost.bytes_received,

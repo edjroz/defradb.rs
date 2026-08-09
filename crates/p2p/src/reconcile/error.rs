@@ -44,6 +44,16 @@ pub enum ReconcileError {
         expected: u16,
     },
 
+    /// The opening frame named a reconciliation engine this build does not
+    /// implement. Distinct from an unknown message kind: the frame was
+    /// well-formed and understood, and the answer is that this peer will not
+    /// run that protocol.
+    #[error("unsupported reconciliation engine {tag}")]
+    UnsupportedEngine {
+        /// The engine tag the peer asked for.
+        tag: u8,
+    },
+
     /// The frame declared a message kind this build does not know.
     #[error("unknown reconciliation message kind {0}")]
     UnknownMessageKind(u8),

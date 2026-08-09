@@ -18,6 +18,10 @@ mod outcome;
 mod session;
 mod source_provider;
 
+#[cfg(test)]
+#[path = "session_tests.rs"]
+mod session_tests;
+
 pub use outcome::ReconcileOutcome;
 pub use session::{accept, initiate, serve};
 pub use source_provider::ReconcileSourceProvider;

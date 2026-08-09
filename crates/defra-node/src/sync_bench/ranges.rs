@@ -14,6 +14,7 @@
 use std::time::{Duration, Instant};
 
 use p2p::metrics::CountersSnapshot;
+use p2p::reconcile::EngineKind;
 
 use super::csv::MeasurementRow;
 use super::documents::COLLECTION;
@@ -107,7 +108,10 @@ impl NodePair {
 
         while cost.sessions < MAX_SESSIONS && started.elapsed() < CONVERGENCE_TIMEOUT {
             cost.sessions += 1;
-            let outcome = match reconciler.reconcile_collection(&peer_id, COLLECTION).await {
+            let outcome = match reconciler
+                .reconcile_collection(&peer_id, COLLECTION, EngineKind::Rbsr)
+                .await
+            {
                 Ok(outcome) => outcome,
                 Err(reason) => {
                     error = Some(reason.to_string());

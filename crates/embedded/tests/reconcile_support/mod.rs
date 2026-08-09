@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
 use cid::Cid;
-use embedded::reconcile_ops::ReconcileOutcome;
+use embedded::reconcile_ops::{EngineKind, ReconcileOutcome};
 use embedded::{EmbeddedNode, EmbeddedStore, IrohConfig, ManagedP2PSystem, NodeBuilder};
 use tokio::time::{sleep, Duration, Instant};
 
@@ -51,10 +51,14 @@ impl Pair {
     }
 
     pub async fn reconcile(&self) -> Result<ReconcileOutcome> {
+        self.reconcile_with(EngineKind::Rbsr).await
+    }
+
+    pub async fn reconcile_with(&self, engine: EngineKind) -> Result<ReconcileOutcome> {
         p2p_of(&self.initiator)?
             .reconciler()
             .context("initiator has no reconciler installed")?
-            .reconcile_collection(&self.responder_peer_id, COLLECTION)
+            .reconcile_collection(&self.responder_peer_id, COLLECTION, engine)
             .await
     }
 
