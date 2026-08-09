@@ -19,7 +19,7 @@ use super::baseline::{self, SEED};
 use super::csv::MeasurementRow;
 use super::documents::{apply_updates, quiesce, seed_docs};
 use super::harness::NodePair;
-use super::output::{assert_converged, assert_payload_identity, record};
+use super::output::{assert_converged, assert_payload_identity, record, record_sessions};
 use super::ranges::RangesRun;
 use super::scenario::DivergenceFixture;
 
@@ -134,6 +134,12 @@ fn record_comparison(name: &str, default_rows: &[MeasurementRow], run: &RangesRu
     let mut rows = default_rows.to_vec();
     rows.extend(run.rows.iter().cloned());
     record(name, &rows);
+    let scenario = run
+        .rows
+        .first()
+        .map(|row| row.scenario.clone())
+        .unwrap_or_else(|| name.to_string());
+    record_sessions(name, &scenario, run);
     report_session_cost(name, run);
     assert_converged(&run.rows);
     assert_payload_identity(default_rows, &run.rows);

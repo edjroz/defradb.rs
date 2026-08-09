@@ -7,6 +7,8 @@
 use std::path::PathBuf;
 
 use super::csv::{self, MeasurementRow};
+use super::ranges::RangesRun;
+use super::session_csv;
 
 pub(super) fn out_dir() -> PathBuf {
     std::env::var("DEFRA_SYNC_BENCH_OUT")
@@ -18,6 +20,13 @@ pub(super) fn record(name: &str, rows: &[MeasurementRow]) {
     let path = out_dir().join(format!("{name}.csv"));
     csv::write(&path, rows).expect("write measurement csv");
     println!("{}\n{}", path.display(), csv::render(rows));
+}
+
+/// Record the discovery cost beside the measurement row it belongs to.
+pub(super) fn record_sessions(name: &str, scenario: &str, run: &RangesRun) {
+    let path = out_dir().join(format!("{name}_sessions.csv"));
+    session_csv::write(&path, scenario, run).expect("write session csv");
+    println!("{}\n{}", path.display(), session_csv::render(scenario, run));
 }
 
 /// Every row is recorded before it is judged, so a scenario that fails to

@@ -33,3 +33,6 @@ mod convergence_proptests;
 
 #[cfg(test)]
 mod protocol_tests;
+
+#[cfg(test)]
+mod round_cap_tests;

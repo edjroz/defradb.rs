@@ -49,6 +49,36 @@ pub(crate) async fn apply_updates(
     }
 }
 
+/// Apply the fixture's updates `depth` times over, so every diverged document
+/// carries a branch that many commits long.
+///
+/// Depth is built by repeated updates to the same documents, which is the shape
+/// the Go depth-invariance bench uses. Each step writes a distinct value so no
+/// update is a no-op that the CRDT could collapse.
+pub(crate) async fn apply_deep_updates(
+    node: &EmbeddedNode,
+    doc_ids: &[String],
+    fixture: &DivergenceFixture,
+    depth: u32,
+) {
+    for step in 0..depth {
+        for update in &fixture.updates {
+            let response = node
+                .execute(&format!(
+                    r#"mutation {{ update_BenchDoc(docID: "{}", input: {{value: {}}}) {{ _docID }} }}"#,
+                    doc_ids[update.doc_index],
+                    update.value + i64::from(step)
+                ))
+                .await;
+            assert!(
+                response.errors.is_empty(),
+                "deep update failed: {:?}",
+                response.errors
+            );
+        }
+    }
+}
+
 /// Wait until the node's own document state stops moving.
 ///
 /// A reconciliation session snapshots the collection's head set once, at the

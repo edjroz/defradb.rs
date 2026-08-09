@@ -9,6 +9,7 @@
 
 mod baseline;
 mod csv;
+mod depth;
 mod documents;
 mod harness;
 mod output;
@@ -16,3 +17,4 @@ mod ranges;
 mod ranges_matrix;
 mod run;
 mod scenario;
+mod session_csv;
