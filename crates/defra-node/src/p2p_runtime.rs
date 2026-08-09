@@ -157,6 +157,7 @@ pub(super) struct P2PSetupResult {
     pub(super) txn_broadcaster: Arc<dyn db::event_emission::TxnBroadcaster>,
     pub(super) blockstore: Arc<dyn blockstore::Blockstore>,
     pub(super) reconciler: Option<Arc<dyn crate::reconcile::ReconcileTrigger>>,
+    pub(super) reconcile_source: Option<Arc<dyn p2p::sync::ReconcileSourceProvider>>,
 }
 
 pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
@@ -235,10 +236,11 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
     let failure_recorder_task = spawn_failure_recorder(store.clone(), failure_rx);
 
     let coordinator = Arc::new(coordinator);
-    if config.reconcile_enabled {
-        coordinator.install_reconcile_source(Arc::new(db_merge::create_reconcile_source(
-            database.clone(),
-        )));
+    let reconcile_source: Option<Arc<dyn p2p::sync::ReconcileSourceProvider>> = config
+        .reconcile_enabled
+        .then(|| Arc::new(db_merge::create_reconcile_source(database.clone())) as Arc<_>);
+    if let Some(source) = reconcile_source.clone() {
+        coordinator.install_reconcile_source(source);
     }
     coordinator
         .install_pending_dag_store(Arc::new(p2p::sync::PendingDagStore::new(store.clone())))
@@ -344,6 +346,7 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
     Ok(P2PSetupResult {
         ops,
         reconciler,
+        reconcile_source,
         lifecycle: Some(P2PLifecycle::new(P2PLifecycleInner {
             transport,
             coordinator: coordinator.shutdown_handle(),

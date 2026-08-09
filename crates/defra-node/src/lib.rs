@@ -126,6 +126,8 @@ pub struct EmbeddedNode {
     p2p_blockstore: Option<Arc<dyn blockstore::Blockstore>>,
     #[cfg(feature = "p2p")]
     p2p_reconciler: Option<Arc<dyn reconcile::ReconcileTrigger>>,
+    #[cfg(feature = "p2p")]
+    p2p_reconcile_source: Option<Arc<dyn p2p::sync::ReconcileSourceProvider>>,
     #[cfg(feature = "otel")]
     telemetry: std::sync::Mutex<Option<TelemetryHandle>>,
 }
@@ -369,6 +371,19 @@ impl EmbeddedNode {
     #[cfg(feature = "p2p")]
     pub fn reconciler(&self) -> Option<&Arc<dyn reconcile::ReconcileTrigger>> {
         self.p2p_reconciler.as_ref()
+    }
+
+    /// The sealed head set a reconciliation session runs over, present only
+    /// when [`P2PConfig::reconcile_enabled`] was set.
+    ///
+    /// Exposed for the session-cost benchmark, which has to build a snapshot
+    /// from a real store to know what a session costs at node scale. Hidden
+    /// rather than private because that benchmark needs its own allocator and
+    /// therefore its own test binary.
+    #[doc(hidden)]
+    #[cfg(feature = "p2p")]
+    pub fn reconcile_source(&self) -> Option<&Arc<dyn p2p::sync::ReconcileSourceProvider>> {
+        self.p2p_reconcile_source.as_ref()
     }
 
     /// Cloneable P2P operations handle for background tasks.
@@ -1269,15 +1284,17 @@ impl NodeBuilder {
         ));
 
         #[cfg(feature = "p2p")]
-        let (p2p_ops, p2p_lifecycle, p2p_blockstore, p2p_reconciler) = match p2p_result {
-            Some(result) => (
-                Some(result.ops),
-                result.lifecycle,
-                Some(result.blockstore),
-                result.reconciler,
-            ),
-            None => (None, None, None, None),
-        };
+        let (p2p_ops, p2p_lifecycle, p2p_blockstore, p2p_reconciler, p2p_reconcile_source) =
+            match p2p_result {
+                Some(result) => (
+                    Some(result.ops),
+                    result.lifecycle,
+                    Some(result.blockstore),
+                    result.reconciler,
+                    result.reconcile_source,
+                ),
+                None => (None, None, None, None, None),
+            };
 
         Ok(EmbeddedNode {
             runner,
@@ -1299,6 +1316,8 @@ impl NodeBuilder {
             p2p_blockstore,
             #[cfg(feature = "p2p")]
             p2p_reconciler,
+            #[cfg(feature = "p2p")]
+            p2p_reconcile_source,
             #[cfg(feature = "otel")]
             telemetry: std::sync::Mutex::new(telemetry_handle),
         })
