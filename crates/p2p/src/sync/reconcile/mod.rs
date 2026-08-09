@@ -19,6 +19,10 @@ mod session;
 mod source_provider;
 
 #[cfg(test)]
+#[path = "latency_tests.rs"]
+mod latency_tests;
+
+#[cfg(test)]
 #[path = "session_tests.rs"]
 mod session_tests;
 

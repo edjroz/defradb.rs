@@ -24,10 +24,10 @@ use crate::reconcile::session::Session;
 use crate::reconcile::source::{Item, ItemId, MemorySource};
 
 /// Identity width both engines are measured at: a CIDv1 `dag-cbor/sha2-256`.
-pub(super) const IDENTITY_WIDTH: usize = 36;
+pub(crate) const IDENTITY_WIDTH: usize = 36;
 
 /// A deterministic identity of exactly [`IDENTITY_WIDTH`] bytes.
-pub(super) fn id(seed: u64) -> ItemId {
+pub(crate) fn id(seed: u64) -> ItemId {
     use sha2::Digest;
     let digest = sha2::Sha256::digest(seed.to_be_bytes());
     let mut bytes = digest.to_vec();
@@ -37,7 +37,7 @@ pub(super) fn id(seed: u64) -> ItemId {
 
 /// What one session cost, in the terms both engines can be asked for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Measurement {
+pub(crate) struct Measurement {
     /// Encoded bytes crossing the wire, both directions, envelope included.
     pub bytes: usize,
     /// Peer messages the initiating side consumed.
@@ -54,7 +54,7 @@ pub(super) struct Measurement {
 ///
 /// The seed moves the identity space as well as which items diverge, because a
 /// coded stream is a function of the set and not of the order it was built in.
-pub(super) fn diverged(n: usize, d: usize, seed: u64) -> (MemorySource, MemorySource) {
+pub(crate) fn diverged(n: usize, d: usize, seed: u64) -> (MemorySource, MemorySource) {
     let mut universe: Vec<u64> = (0..(n + d) as u64).collect();
     shuffle(&mut universe, seed);
 
@@ -89,7 +89,7 @@ fn shuffle(values: &mut [u64], seed: u64) {
 }
 
 /// Reconciles `local` against `remote` over the range engine.
-pub(super) fn rbsr(local: &MemorySource, remote: &MemorySource) -> Result<Measurement> {
+pub(crate) fn rbsr(local: &MemorySource, remote: &MemorySource) -> Result<Measurement> {
     let mut initiator = Session::new(RbsrEngine::initiator(local));
     let mut responder = Session::new(RbsrEngine::responder(remote));
     let mut bytes = 0usize;
@@ -123,7 +123,7 @@ pub(super) fn rbsr(local: &MemorySource, remote: &MemorySource) -> Result<Measur
 }
 
 /// Reconciles `local` against `remote` over the rateless engine.
-pub(super) fn riblt(local: &MemorySource, remote: &MemorySource) -> Result<Measurement> {
+pub(crate) fn riblt(local: &MemorySource, remote: &MemorySource) -> Result<Measurement> {
     let mut decoder = Session::new(RibltEngine::decoder(local)?);
     let mut encoder = Session::new(RibltEngine::encoder(remote)?);
     let mut bytes = 0usize;
