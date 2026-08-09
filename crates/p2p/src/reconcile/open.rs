@@ -37,3 +37,30 @@ impl SessionOpen {
 impl WireMessage for SessionOpen {
     const KIND: MessageKind = MessageKind::SessionOpen;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reconcile::codec;
+
+    /// The opening frame is the difference between what a session's own
+    /// accounting reports and what the transport counters see, so a benchmark
+    /// that reconciles the two derives its size by division and has no way to
+    /// check the answer. This is that check: the phase 3 campaign derived 43
+    /// bytes per session for the collection `BenchDoc`, and here is the same
+    /// number produced by encoding the frame directly.
+    #[test]
+    fn a_named_collection_costs_what_the_campaign_derived() {
+        let encoded = codec::encode(&SessionOpen::new("BenchDoc")).expect("encode");
+        assert_eq!(encoded.len(), 43);
+    }
+
+    /// The frame is a fixed envelope plus the collection name, so the derived
+    /// per-session constant is only constant for a given collection.
+    #[test]
+    fn the_frame_grows_only_with_the_collection_name() {
+        let short = codec::encode(&SessionOpen::new("A")).expect("encode");
+        let longer = codec::encode(&SessionOpen::new("AAAAAAAA")).expect("encode");
+        assert_eq!(longer.len() - short.len(), 7);
+    }
+}
