@@ -596,12 +596,14 @@ pub(super) async fn handle_command(
             let direct_addr = peer_direct_addr(peer_map, &peer_id);
             let endpoint = endpoint.clone();
             let connection_cache = Arc::clone(connection_cache);
+            let task_counters = counters.clone();
             let task = tokio::spawn(async move {
                 let result = handle_open_reconcile_session(
                     &endpoint,
                     &peer_id,
                     direct_addr,
                     &connection_cache,
+                    task_counters,
                 )
                 .await;
                 let _ = reply.send(result);

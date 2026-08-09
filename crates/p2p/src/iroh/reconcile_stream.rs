@@ -9,10 +9,21 @@
 //! clean end of stream: a session's normal termination is the peer finishing its
 //! sending half, which must be reported as "no more frames" rather than as a
 //! read error, or every successful session would end in a failure.
+//!
+//! Frames are metered against [`ALPN_RECON`](protocols::ALPN_RECON) like every
+//! other protocol on this transport, so a benchmark can attribute what a
+//! session cost on the wire independently of what the session itself reports.
+//! The counted quantity is the frame body, excluding the four-byte length
+//! prefix — the same convention [`protocols::write_message`] uses — so the two
+//! accountings are directly comparable.
+
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use iroh::endpoint::{ReadExactError, RecvStream, SendStream};
 
+use super::protocols::{self, Meter};
+use crate::metrics::TransportCounters;
 use crate::reconcile::codec::MAX_FRAME_BYTES;
 use crate::reconcile::error::{ReconcileError, Result};
 use crate::reconcile::stream::ReconcileStream;
@@ -22,12 +33,26 @@ use crate::reconcile::stream::ReconcileStream;
 pub struct IrohReconcileStream {
     send: SendStream,
     recv: RecvStream,
+    counters: Option<Arc<TransportCounters>>,
 }
 
 impl IrohReconcileStream {
-    /// Wraps an accepted or opened bi-stream.
-    pub fn new(send: SendStream, recv: RecvStream) -> Self {
-        Self { send, recv }
+    /// Wraps an accepted or opened bi-stream. A `None` counter handle disables
+    /// counting, which is what every production caller passes.
+    pub fn new(
+        send: SendStream,
+        recv: RecvStream,
+        counters: Option<Arc<TransportCounters>>,
+    ) -> Self {
+        Self {
+            send,
+            recv,
+            counters,
+        }
+    }
+
+    fn meter(&self) -> Meter<'_> {
+        Meter::for_alpn(self.counters.as_ref(), protocols::ALPN_RECON)
     }
 }
 
@@ -49,7 +74,9 @@ impl ReconcileStream for IrohReconcileStream {
         self.send
             .write_all(frame)
             .await
-            .map_err(|error| transport_error("failed to write frame", error))
+            .map_err(|error| transport_error("failed to write frame", error))?;
+        self.meter().record_raw_sent(frame.len());
+        Ok(())
     }
 
     async fn recv_frame(&mut self) -> Result<Option<Vec<u8>>> {
@@ -73,6 +100,7 @@ impl ReconcileStream for IrohReconcileStream {
             .read_exact(&mut frame)
             .await
             .map_err(|error| transport_error("failed to read frame", error))?;
+        self.meter().record_raw_recv(frame.len());
         Ok(Some(frame))
     }
 

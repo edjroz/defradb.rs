@@ -145,7 +145,9 @@ async fn handle_connection_streams(
                 .send(TransportEvent::ReconcileSession {
                     peer_id: peer_id.clone(),
                     stream: Box::new(super::reconcile_stream::IrohReconcileStream::new(
-                        send, recv,
+                        send,
+                        recv,
+                        counters.clone(),
                     )),
                 })
                 .await

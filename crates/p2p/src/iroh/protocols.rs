@@ -277,6 +277,22 @@ mod tests {
         }
     }
 
+    /// A reconciliation session's frames are coordination traffic, so they must
+    /// land in the same class the default path's DocSync messages do or the two
+    /// modes' `ctrlBytes` columns are not measuring the same thing.
+    #[test]
+    fn reconcile_frames_classify_as_control() {
+        let counters = TransportCounters::new();
+        Meter::for_alpn(Some(&counters), ALPN_RECON).record_sent(84);
+        Meter::for_alpn(Some(&counters), ALPN_RECON).record_recv(444);
+
+        let snapshot = counters.snapshot();
+        assert_eq!(snapshot.control_bytes_sent(), 84);
+        assert_eq!(snapshot.control_bytes_recv(), 444);
+        assert_eq!(snapshot.payload_bytes_sent(), 0);
+        assert_eq!(snapshot.payload_bytes_recv(), 0);
+    }
+
     #[test]
     fn reconcile_alpn_is_not_always_on() {
         assert!(

@@ -358,13 +358,14 @@ pub(super) async fn handle_open_reconcile_session(
     peer_id: &PeerId,
     direct_addr: Option<std::net::SocketAddr>,
     cache: &ConnectionCache,
+    counters: Option<Arc<TransportCounters>>,
 ) -> crate::error::Result<Box<dyn crate::reconcile::ReconcileStream>> {
     let alpn = protocols::ALPN_RECON;
     let connection = connect_with_cache(endpoint, peer_id, alpn, direct_addr, cache).await?;
 
     match open_bi_with_timeout(&connection, peer_id, alpn).await {
         Ok((send, recv)) => Ok(Box::new(super::reconcile_stream::IrohReconcileStream::new(
-            send, recv,
+            send, recv, counters,
         ))),
         Err(error) => {
             evict_connection(cache, peer_id, alpn);
