@@ -106,6 +106,11 @@ fn steady_state_stream(c: &mut Criterion) {
 
 /// Subtract and peel a difference of `d` out of a large shared set: the cost
 /// that should track `d` and ignore `n` entirely.
+///
+/// Loading the two sets is setup, not decode, and it is `O(n)` — at n=10 000 it
+/// is milliseconds, which would swamp the peel it is supposed to isolate. So it
+/// happens outside the timed routine, and the timed part is what the decoder
+/// does once the stream arrives: subtract each cell, peel, cascade.
 fn decode_by_difference(c: &mut Criterion) {
     let mut group = c.benchmark_group("riblt/decode");
     let shared = symbols(0..10_000);
@@ -113,23 +118,29 @@ fn decode_by_difference(c: &mut Criterion) {
         let extra = symbols(10_000..10_000 + d);
         group.throughput(Throughput::Elements(d as u64));
         group.bench_with_input(BenchmarkId::from_parameter(d), &d, |b, _| {
-            b.iter(|| {
-                let mut encoder = Encoder::new(36);
-                for item in shared.iter().chain(extra.iter()) {
-                    encoder.add(item.clone());
-                }
-                let mut decoder = Decoder::new(36);
-                for item in &shared {
-                    decoder.add(item.clone());
-                }
-                while !decoder.is_decoded() {
-                    decoder
-                        .add_coded_symbol(encoder.produce_next())
-                        .expect("one width");
-                    decoder.try_decode();
-                }
-                black_box(decoder.remote().count())
-            });
+            b.iter_batched(
+                || {
+                    let mut encoder = Encoder::new(36);
+                    for item in shared.iter().chain(extra.iter()) {
+                        encoder.add(item.clone());
+                    }
+                    let mut decoder = Decoder::new(36);
+                    for item in &shared {
+                        decoder.add(item.clone());
+                    }
+                    (decoder, encoder)
+                },
+                |(mut decoder, mut encoder)| {
+                    while !decoder.is_decoded() {
+                        decoder
+                            .add_coded_symbol(encoder.produce_next())
+                            .expect("one width");
+                        decoder.try_decode();
+                    }
+                    black_box(decoder.remote().count())
+                },
+                criterion::BatchSize::LargeInput,
+            );
         });
     }
     group.finish();
