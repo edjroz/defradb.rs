@@ -41,11 +41,24 @@
 //! that are not. A hostile peer's stream simply never converges, and the
 //! session ends on its symbol cap, which is an error rather than a silent lie.
 //!
-//! What is deliberately *not* claimed: nothing here can tell a real remote
-//! symbol from one the peer invented, because a peer that computes a checksum
-//! correctly has produced a valid cell by definition. That is why reconciliation
-//! is discovery-only — the recovered identities are content-addressed, so an
-//! invented one simply fails to fetch.
+//! # The two halves are not equally checkable
+//!
+//! A `+1` residual claims "the peer holds this and you do not", and nothing here
+//! can check it: a peer that computes a checksum correctly has produced a valid
+//! cell by definition, and the decoder has no knowledge of the remote set to
+//! contradict it. That is why reconciliation is discovery-only — the recovered
+//! identities are content-addressed, so an invented one simply fails to fetch.
+//!
+//! A `-1` residual claims "*you* hold this and the peer does not", and that one
+//! *is* checkable, because the decoder knows its own set. Only a symbol the
+//! local window actually holds can be peeled into the `have` half. This costs
+//! nothing on an honest stream: a `-1` residual is by construction the one
+//! remaining unpeeled member of `local \ remote`, which is a subset of the local
+//! set. Without the check a peer can name anything at all as something this node
+//! holds — the residual algebra is genuinely satisfied, so no amount of
+//! after-the-fact verification of the difference would catch it.
+
+use std::collections::HashSet;
 
 use super::mapping::RandomMapping;
 use super::symbol::{CodedSymbol, HashedSymbol, ADD, REMOVE};
@@ -65,6 +78,14 @@ pub struct Decoder {
     remote: CodingWindow,
     local: CodingWindow,
     decodable: Vec<usize>,
+    /// Hashes of the local set, for deciding whether a `-1` residual names
+    /// something this node actually holds.
+    ///
+    /// Hashes rather than symbols: a forged symbol passes only by colliding with
+    /// a real one, which is the same `2^-64` bound the checksum test that got it
+    /// this far already rests on, at a fraction of the memory a session would
+    /// otherwise pin.
+    members: HashSet<u64>,
 }
 
 impl Decoder {
@@ -79,13 +100,16 @@ impl Decoder {
             remote: CodingWindow::new(),
             local: CodingWindow::new(),
             decodable: Vec::new(),
+            members: HashSet::new(),
         }
     }
 
     /// Adds one local source symbol. All must be added before the first
     /// [`Self::add_coded_symbol`].
     pub fn add(&mut self, symbol: Vec<u8>) {
-        self.window.add(HashedSymbol::new(symbol));
+        let symbol = HashedSymbol::new(symbol);
+        self.members.insert(symbol.hash());
+        self.window.add(symbol);
     }
 
     /// Takes the next cell of the peer's stream, subtracting the local set and
@@ -119,7 +143,9 @@ impl Decoder {
     ///
     /// Purity is re-checked when a cell is taken off the queue rather than
     /// trusted from when it was put on, because a cell can be changed by another
-    /// cell's peel in between.
+    /// cell's peel in between. A cell claiming a symbol this node does not hold
+    /// is left where it is — unsettled, so the session ends on its cap rather
+    /// than reporting the claim.
     pub fn try_decode(&mut self) {
         let mut next = 0;
         while next < self.decodable.len() {
@@ -129,10 +155,14 @@ impl Decoder {
             if self.settled[index] || !self.cells[index].is_pure() {
                 continue;
             }
-            self.settled[index] = true;
 
             let count = self.cells[index].count();
             let symbol = HashedSymbol::new(self.cells[index].sum().to_vec());
+            if count == -1 && !self.members.contains(&symbol.hash()) {
+                continue;
+            }
+            self.settled[index] = true;
+
             let direction = if count == 1 { REMOVE } else { ADD };
             let mapping = self.peel(&symbol, direction);
             if count == 1 {

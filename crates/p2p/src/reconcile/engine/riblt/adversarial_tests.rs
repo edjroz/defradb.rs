@@ -272,3 +272,86 @@ fn an_honest_stream_still_converges_after_the_guard() {
     );
     assert!(engine.diff().have().is_empty());
 }
+
+/// A `count == -1` peel says "this is mine and the peer lacks it". The decoder
+/// knows its own set, so that claim is checkable — and if it is not checked, a
+/// peer can name anything it likes as something this node holds.
+///
+/// Nothing acts on `have` today, but it is the obvious input to a push phase,
+/// and it is surfaced to callers now.
+#[test]
+fn an_invented_identity_cannot_be_reported_as_held() {
+    let mut engine = decoder_engine(0..0);
+    let invented = vec![0x5c; WIDTH];
+
+    let progress = feed(
+        &mut engine,
+        vec![CodedSymbol::new(
+            invented.clone(),
+            symbol_hash(&invented),
+            -1,
+        )],
+    )
+    .expect("not an error");
+
+    assert_eq!(
+        progress,
+        Progress::Continue,
+        "an empty node holds nothing, so it can be owed nothing"
+    );
+    assert!(engine.diff().have().is_empty());
+}
+
+/// The same against a real set, where the attacker cancels the peer's own cell
+/// zero so the residual is a clean `-1` for a symbol the node has never held.
+#[test]
+fn an_invented_identity_is_refused_even_beside_a_real_set() {
+    let mut engine = decoder_engine(0..25);
+    let invented = vec![0x77; WIDTH];
+
+    let mirror = local_cell_zero(0..25);
+    let hostile = CodedSymbol::new(
+        mirror
+            .sum()
+            .iter()
+            .zip(invented.iter())
+            .map(|(local, forged)| local ^ forged)
+            .collect(),
+        mirror.checksum() ^ symbol_hash(&invented),
+        mirror.count() - 1,
+    );
+
+    let progress = feed(&mut engine, vec![hostile]).expect("not an error");
+    assert_eq!(progress, Progress::Continue);
+    assert!(
+        engine.diff().have().is_empty(),
+        "the residual algebra is satisfied; membership is what refuses it"
+    );
+}
+
+/// The check must not cost the honest `have` side. A difference the local node
+/// really does hold is still recovered.
+#[test]
+fn a_real_have_set_still_decodes() {
+    let local = source(0..53);
+    let remote = source(0..50);
+    let mut engine = RibltEngine::decoder(&local).expect("uniform width");
+    engine.next_outbound().expect("no error").expect("opening");
+
+    let mut encoder = super::encoder::Encoder::new(WIDTH);
+    for index in 0..remote.len() {
+        encoder.add(remote.id(index).as_bytes().to_vec());
+    }
+    let cells: Vec<CodedSymbol> = (0..16).map(|_| encoder.produce_next()).collect();
+
+    assert_eq!(
+        feed(&mut engine, cells).expect("not an error"),
+        Progress::Converged
+    );
+    let mut have = engine.diff().have().to_vec();
+    have.sort();
+    let mut expected = vec![id(50), id(51), id(52)];
+    expected.sort();
+    assert_eq!(have, expected);
+    assert!(engine.diff().need().is_empty());
+}

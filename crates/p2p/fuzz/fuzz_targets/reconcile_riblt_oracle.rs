@@ -28,8 +28,15 @@
 //! the thing it is judging; both are pinned to the Go reference by unit tests,
 //! so the duplicate cannot drift silently.
 //!
-//! When nothing tampered with the stream, the stronger check applies: the
-//! recovered difference must equal the true one.
+//! Two further checks, because the residual algebra alone is satisfied by more
+//! than an honest stream. Everything reported as *held* must be in the local
+//! set — that half is checkable and a peer must not be able to name items this
+//! node never had. And when nothing tampered with the stream, the recovered
+//! difference must equal the true one.
+//!
+//! `Tamper::ForgePure { negative: true }` is kept rather than removed: it is the
+//! forgery the membership check exists to refuse, so leaving it in the mutator
+//! means the check is exercised on every run.
 
 #![no_main]
 
@@ -100,7 +107,9 @@ fn mapped_indices(hash: u64, limit: usize) -> Vec<usize> {
         prng = prng.wrapping_mul(0xda94_2042_e4dd_58b5);
         let jump =
             (index as f64 + 1.5) * ((1u64 << 32) as f64 / (prng as f64 + 1.0).sqrt() - 1.0);
-        index = index.saturating_add(jump.ceil() as u64);
+        // The floor is the engine's, and the transcription has to carry it or it
+        // would both disagree with its subject and spin here on a zero step.
+        index = index.saturating_add((jump.ceil() as u64).max(1));
     }
     out
 }
@@ -267,6 +276,14 @@ fuzz_target!(|session: Session| {
         every_cell_is_explained(&accepted, &local, &need, &have),
         "converged on a difference that does not explain the cells it accepted"
     );
+
+    let held: BTreeSet<&Vec<u8>> = local.iter().collect();
+    for item in &have {
+        assert!(
+            held.contains(item),
+            "reported holding a symbol this set never contained"
+        );
+    }
 
     if honest {
         let mut expected_need: Vec<Vec<u8>> = remote_only.iter().map(|s| symbol(*s)).collect();
