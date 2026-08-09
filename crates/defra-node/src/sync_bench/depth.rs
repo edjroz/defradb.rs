@@ -30,6 +30,7 @@ async fn default_point(depth: u32) -> Vec<MeasurementRow> {
     let fixture = DivergenceFixture::new(SEED, DOCS, DIVERGED);
     let pair = NodePair::isolated().await;
     let doc_ids = seed_docs(&pair.writer, &fixture).await;
+    quiesce(&pair.writer).await;
 
     pair.connect().await;
     let base = pair

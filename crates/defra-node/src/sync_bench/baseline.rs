@@ -14,7 +14,7 @@
 //! run that does not converge leaves a `converged=False` row rather than none.
 
 use super::csv::MeasurementRow;
-use super::documents::{apply_updates, seed_docs};
+use super::documents::{apply_updates, quiesce, seed_docs};
 use super::harness::NodePair;
 use super::output::{assert_converged, record};
 use super::scenario::DivergenceFixture;
@@ -28,6 +28,7 @@ pub(super) async fn cold_start(docs: usize) -> Vec<MeasurementRow> {
     let fixture = DivergenceFixture::new(SEED, docs, 0);
     let pair = NodePair::isolated().await;
     let doc_ids = seed_docs(&pair.writer, &fixture).await;
+    quiesce(&pair.writer).await;
 
     pair.connect().await;
     pair.reset_counters();
@@ -50,6 +51,7 @@ pub(super) async fn tiny_diff(docs: usize, diverged: usize) -> Vec<MeasurementRo
     let fixture = DivergenceFixture::new(SEED, docs, diverged);
     let pair = NodePair::isolated().await;
     let doc_ids = seed_docs(&pair.writer, &fixture).await;
+    quiesce(&pair.writer).await;
 
     pair.connect().await;
     let scenario = format!("diff{diverged}_docs{docs}");
@@ -64,6 +66,7 @@ pub(super) async fn tiny_diff(docs: usize, diverged: usize) -> Vec<MeasurementRo
     }
 
     apply_updates(&pair.writer, &doc_ids, &fixture).await;
+    quiesce(&pair.writer).await;
     pair.reset_counters();
     let rows = pair.measure_pull(&scenario, &doc_ids).await;
     pair.shutdown().await;

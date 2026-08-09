@@ -84,8 +84,20 @@ pub(crate) async fn apply_deep_updates(
 /// A reconciliation session snapshots the collection's head set once, at the
 /// moment it starts. Measuring while the writer is still sealing commits would
 /// make the recorded cost depend on how far the writes happened to have got,
-/// which is a property of the run order and not of the protocol. Every measured
-/// session is preceded by this.
+/// which is a property of the run order and not of the protocol.
+///
+/// **Every measured run in both modes waits here**, including the default-mode
+/// runs, which do not snapshot anything. They do not need it, but giving one
+/// mode a settling window the other does not have would put a difference in the
+/// setup of a comparison whose whole point is that only the protocol differs.
+///
+/// Stability is judged on the document set rather than on the head set the
+/// session actually reads, because the default-mode pair has no reconciliation
+/// source installed and reaching for one purely to time a benchmark would
+/// reintroduce exactly the asymmetry above. The two are not independent: a
+/// document's value and its head are written together, so a query that returns
+/// the updated value is downstream of the head that carries it. That is an
+/// argument from how the write path is structured, not a measurement.
 pub(crate) async fn quiesce(node: &EmbeddedNode) {
     const POLL: std::time::Duration = std::time::Duration::from_millis(100);
     const STABLE_FOR: std::time::Duration = std::time::Duration::from_millis(750);
@@ -106,6 +118,15 @@ pub(crate) async fn quiesce(node: &EmbeddedNode) {
             return;
         }
     }
+
+    // Loud, because a run that measured a moving writer is not a worse
+    // measurement of the same thing — it is a measurement of something else,
+    // and a silent return would leave the row looking exactly like a good one.
+    println!(
+        "  WARNING: writer state was still moving after {}s; \
+         the row that follows was measured under write pressure",
+        DEADLINE.as_secs()
+    );
 }
 
 fn created_doc_id(data: &Option<JsonValue>, errors: &[impl std::fmt::Debug]) -> String {
