@@ -217,6 +217,20 @@ fn next_batch(received: usize) -> usize {
 }
 
 /// The one symbol width a source reconciles at.
+///
+/// # Precondition this cannot check cheaply
+///
+/// Identities must be distinct. The symbol *is* the identity, and the group
+/// operation is its own inverse, so a set holding the same identity twice folds
+/// it to nothing: the item is invisible to reconciliation and both peers agree
+/// on a difference neither of them has.
+///
+/// [`MemorySource`](crate::reconcile::MemorySource) rejects duplicate *sort
+/// keys*, which are `height || id`, so it would admit one identity at two
+/// heights. The headstore-backed source cannot produce that — a head CID has
+/// exactly one commit priority — so this is a constraint on future sources
+/// rather than a live gap, and it is stated rather than enforced because
+/// enforcing it means a set the size of the snapshot on every session.
 fn session_width<S: ItemSource>(source: &S) -> Result<usize> {
     let mut width = 0;
     for index in 0..source.len() {

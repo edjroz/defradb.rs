@@ -30,9 +30,7 @@ pub const MAX_FRAME_BYTES: usize = 16 << 20;
 pub enum MessageKind {
     /// A range tiling from the RBSR engine.
     RbsrRanges = 1,
-    /// A coded-symbol batch from the RIBLT engine. Reserved: nothing encodes
-    /// this yet, but the kind is allocated so an RBSR-only peer rejects it as a
-    /// mismatch rather than as garbage.
+    /// A coded-symbol batch, or a request for one, from the RIBLT engine.
     RibltSymbols = 2,
     /// The frame naming the set a session is about to reconcile.
     SessionOpen = 3,

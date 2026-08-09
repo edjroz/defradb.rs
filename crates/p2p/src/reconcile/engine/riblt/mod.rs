@@ -1,8 +1,16 @@
 //! Rateless set reconciliation (RIBLT).
 //!
 //! Two peers discover the difference between their sets while exchanging bytes
-//! proportional to `|A △ B|` and *independent of `|A ∪ B|`*, in about half a
-//! round trip. Where the [`rbsr`](super::rbsr) engine spends interactive rounds
+//! proportional to `|A △ B|` and *independent of `|A ∪ B|`*. The paper's
+//! protocol is half a round trip — one side streams until told to stop — but
+//! this one is not: deviation 3 below turns the stream into a pull with
+//! doubling batches, so a session takes `O(log d)` round trips, measured at one
+//! up to `d = 8`, six at `d = 100` and nine at `d = 1000`. That is still far
+//! fewer bytes than the range engine at small `d`, and it is *not* the
+//! round-trip win the paper describes; anything reasoning about high-latency
+//! links has to use the measured rounds.
+//!
+//! Where the [`rbsr`](super::rbsr) engine spends interactive rounds
 //! locating the difference inside an ordered keyspace, this engine never locates
 //! anything: the shared majority annihilates itself when the decoder subtracts
 //! its own sketch, and what is left on the wire is only ever about the
