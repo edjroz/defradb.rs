@@ -145,3 +145,7 @@ pub(crate) mod comparison;
 #[cfg(test)]
 #[path = "engine/comparison_tests.rs"]
 mod comparison_tests;
+
+#[cfg(test)]
+#[path = "engine/comparison_tail_tests.rs"]
+mod comparison_tail_tests;

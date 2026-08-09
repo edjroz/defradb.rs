@@ -15,7 +15,10 @@
 //! `SessionOpen` frame, which costs 43 bytes for the range engine and 52 for the
 //! rateless one, because the engine tag is omitted when it names the default.
 
+use std::result::Result as StdResult;
+
 use crate::reconcile::codec;
+use crate::reconcile::engine::rbsr::caps::{BRANCHING_FACTOR, ID_LIST_THRESHOLD};
 use crate::reconcile::engine::rbsr::RbsrEngine;
 use crate::reconcile::engine::riblt::{RibltEngine, RibltMessage};
 use crate::reconcile::engine::Progress;
@@ -167,3 +170,42 @@ fn cells(message: &RibltMessage) -> usize {
         RibltMessage::Request { .. } => 0,
     }
 }
+
+/// Where the range engine's listing regime ends and `O(d log n)` begins.
+///
+/// Both studies that use this driver run above it, because below it the range
+/// engine lists whole mismatching ranges and a comparison there is about the
+/// listing rule rather than about the protocols.
+pub(crate) const LISTING_BOUNDARY: usize = BRANCHING_FACTOR * ID_LIST_THRESHOLD;
+
+/// One point's result for both engines, or the reason an engine gave up.
+pub(crate) struct Point {
+    pub rbsr: StdResult<Measurement, String>,
+    pub riblt: StdResult<Measurement, String>,
+}
+
+/// Both engines against the same pair of sets.
+pub(crate) fn measure(n: usize, d: usize, seed: u64) -> Point {
+    let (local, remote) = diverged(n, d, seed);
+    Point {
+        rbsr: rbsr(&local, &remote).map_err(|error| error.to_string()),
+        riblt: riblt(&local, &remote).map_err(|error| error.to_string()),
+    }
+}
+
+/// One point as two CSV rows, one per engine. A cap hit prints as an outcome
+/// rather than as a missing line, so a study never loses a point in silence.
+pub(crate) fn row(n: usize, d: usize, seed: u64, point: &Point) {
+    for (engine, result) in [("ranges", &point.rbsr), ("riblt", &point.riblt)] {
+        match result {
+            Ok(m) => println!(
+                "{n},{d},{seed:#x},{engine},{},{},{},{},{},converged",
+                m.bytes, m.rounds, m.symbols, m.need, m.have
+            ),
+            Err(error) => println!("{n},{d},{seed:#x},{engine},,,,,,{error}"),
+        }
+    }
+}
+
+/// The header both studies' raw-draw tables carry.
+pub(crate) const ROW_HEADER: &str = "n,d,seed,engine,bytes,rounds,symbols,need,have,outcome";
