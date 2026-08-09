@@ -9,7 +9,6 @@
 use std::sync::Arc;
 
 use blockstore::Blockstore;
-use cid::Cid;
 
 use super::super::access::check_collection_access;
 use super::super::dag_context::DagFetchContext;
@@ -62,7 +61,8 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
             "Reconciliation session converged"
         );
 
-        self.fetch_reconciled_heads(peer_id, collection_id, diff.need());
+        self.fetch_reconciled_heads(peer_id, collection_id, diff.need())
+            .await;
         Ok((diff, cost))
     }
 
@@ -139,12 +139,18 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
         })
     }
 
-    /// Hands the need set to the DAG fetch path, one fetch per head.
-    fn fetch_reconciled_heads(&self, peer_id: &PeerId, collection_id: &str, need: &[ItemId]) {
-        let heads: Vec<Cid> = need
-            .iter()
-            .filter_map(|id| Cid::try_from(id.as_bytes()).ok())
-            .collect();
+    /// Hands the need set to the DAG fetch path, one fetch per head still
+    /// missing.
+    ///
+    /// The set is deduped and presence-filtered before anything is spawned, and
+    /// each fetch goes through the pending-DAG registry the push path uses, so a
+    /// head whose fetch is already in flight from an earlier session is not
+    /// requested again. Without that, every session that overlaps a slow fetch
+    /// re-asks for the same heads: the phase 3 depth sweep recorded 38 fetches
+    /// for 10 distinct heads at branch depth 50.
+    async fn fetch_reconciled_heads(&self, peer_id: &PeerId, collection_id: &str, need: &[ItemId]) {
+        let heads =
+            super::reconcile_fetch::heads_to_fetch(self.manager.blockstore().as_ref(), need).await;
         if heads.is_empty() {
             return;
         }
@@ -158,7 +164,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
             let source_peer = peer_id.clone();
             let collection_id = collection_id.to_string();
 
-            self.spawn_background_task("reconcile_fetch_dag", async move {
+            self.spawn_pending_dag_fetch_task(root_cid, "reconcile_fetch_dag", async move {
                 let alternate_providers =
                     super::super::dag_fetcher::connected_alternate_providers(&transport, &root_cid)
                         .await;

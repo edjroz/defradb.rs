@@ -8,6 +8,7 @@ mod gossip;
 mod pubsub_raw;
 mod pushlog;
 mod reconcile;
+mod reconcile_fetch;
 
 use blockstore::Blockstore;
 use std::time::Duration;
