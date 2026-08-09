@@ -1,5 +1,6 @@
 use super::*;
 use crate::reconcile::engine::rbsr::{Fingerprint, Range, RbsrMessage};
+use crate::reconcile::engine::riblt::{CodedSymbol, RibltMessage};
 use crate::reconcile::error::ReconcileError;
 use crate::reconcile::source::{Bound, ItemId, SortKey};
 
@@ -134,5 +135,66 @@ fn oversized_frames_are_rejected_before_decoding() {
             size: MAX_FRAME_BYTES + 1,
             max: MAX_FRAME_BYTES,
         })
+    );
+}
+
+/// A cell at the CID symbol width, with a count a mid-stream cell would carry.
+fn cell(count: i64) -> CodedSymbol {
+    CodedSymbol::new(vec![0xa5; 36], 0x0123_4567_89ab_cdef, count)
+}
+
+#[test]
+fn both_riblt_messages_roundtrip() {
+    for message in [
+        RibltMessage::request(36, 8),
+        RibltMessage::symbols(36, vec![cell(1), cell(-1), cell(0), cell(4096)]),
+    ] {
+        let bytes = encode(&message).expect("encodes");
+        assert_eq!(decode::<RibltMessage>(&bytes).expect("decodes"), message);
+    }
+}
+
+#[test]
+fn riblt_frames_carry_their_own_kind() {
+    let bytes = encode(&RibltMessage::request(36, 8)).expect("encodes");
+    let header = peek_header(&bytes).expect("header decodes");
+    assert_eq!(header.version, PROTOCOL_VERSION);
+    assert_eq!(header.kind, MessageKind::RibltSymbols as u8);
+}
+
+/// The two engines' frames must not be readable as one another, or a peer
+/// running the wrong engine would get a decode error deep in a message body
+/// instead of a clean kind mismatch.
+#[test]
+fn an_rbsr_peer_rejects_a_riblt_frame_as_a_mismatch() {
+    let bytes = encode(&RibltMessage::request(36, 8)).expect("encodes");
+    assert_eq!(
+        decode::<RbsrMessage>(&bytes),
+        Err(ReconcileError::MessageKindMismatch {
+            found: MessageKind::RibltSymbols as u8,
+            expected: MessageKind::RbsrRanges as u8,
+        })
+    );
+}
+
+/// What a coded symbol actually costs on this wire, which is the number every
+/// RIBLT bandwidth claim is denominated in.
+///
+/// The recovered design doc modelled 45 bytes at the CID width: 36 for the
+/// symbol, 8 for the checksum, about 1 for the count. This is that number
+/// measured through `ciborium`, which encodes each cell as a map with string
+/// keys — so the model's 45 is the payload and the rest is the representation
+/// choice the deferred wire-format phase owns, not the protocol.
+#[test]
+fn a_coded_symbol_costs_what_the_model_said_plus_its_encoding() {
+    let one = encode(&RibltMessage::symbols(36, vec![cell(1)])).expect("encodes");
+    let two = encode(&RibltMessage::symbols(36, vec![cell(1), cell(1)])).expect("encodes");
+
+    let marginal = two.len() - one.len();
+    assert_eq!(marginal, 68, "marginal bytes per coded symbol");
+    assert_eq!(
+        marginal - (36 + 8 + 1),
+        23,
+        "CBOR field names and headers per cell"
     );
 }

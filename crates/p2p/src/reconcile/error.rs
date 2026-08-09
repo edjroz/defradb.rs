@@ -91,6 +91,28 @@ pub enum ReconcileError {
         expected: usize,
     },
 
+    /// A peer's item identity was wider than the reconcilable cap.
+    #[error("reconcile symbol of {size} bytes exceeds the {max}-byte cap")]
+    SymbolTooWide {
+        /// Width the peer declared.
+        size: usize,
+        /// The cap it exceeded.
+        max: usize,
+    },
+
+    /// A session exchanged its whole coded-symbol budget without the decoder
+    /// converging, which is how a stream that never peels is stopped.
+    #[error("reconciliation exceeded the maximum of {max} coded symbols")]
+    SymbolCapExceeded {
+        /// The cap that was exceeded.
+        max: usize,
+    },
+
+    /// A peer sent a message the local role has no answer to: a request to a
+    /// decoder, a symbol batch to an encoder, or a batch with no cells in it.
+    #[error("unexpected reconciliation message for this session's role")]
+    UnexpectedMessage,
+
     /// The stream carrying the session failed, or the peer closed it before the
     /// session finished. A session that loses its transport ends here rather
     /// than waiting on a peer that will never answer.
