@@ -14,8 +14,10 @@
 //! direction, or by one of them acting on the `have` set through the ordinary
 //! replication path.
 
+mod outcome;
 mod session;
 mod source_provider;
 
+pub use outcome::ReconcileOutcome;
 pub use session::{accept, initiate, serve};
 pub use source_provider::ReconcileSourceProvider;

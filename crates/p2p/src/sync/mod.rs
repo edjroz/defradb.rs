@@ -62,7 +62,7 @@ pub use push_backlog::{
     PushJobSpec, DEFAULT_PUSH_FAILURE_COOLDOWN_BASE,
 };
 pub use queue::ProcessQueue;
-pub use reconcile::ReconcileSourceProvider;
+pub use reconcile::{ReconcileOutcome, ReconcileSourceProvider};
 pub use replication::{recover_unmerged, ReplicationConfig, ReplicationLoop, ReplicationResult};
 
 /// Cadence for draining persisted push retries.
