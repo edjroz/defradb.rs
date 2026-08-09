@@ -156,6 +156,7 @@ pub(super) struct P2PSetupResult {
     pub(super) wire_document_acp: Option<WireDocumentAcpCallback>,
     pub(super) txn_broadcaster: Arc<dyn db::event_emission::TxnBroadcaster>,
     pub(super) blockstore: Arc<dyn blockstore::Blockstore>,
+    pub(super) reconciler: Option<Arc<dyn crate::reconcile::ReconcileTrigger>>,
 }
 
 pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
@@ -177,6 +178,7 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
         bind_addr: config.bind_addr,
         max_concurrent_multipath_paths: config.max_concurrent_multipath_paths,
         gossip_heal: p2p::iroh::GossipHealConfig::from_env(),
+        reconcile_enabled: config.reconcile_enabled,
     };
     let (command_tx, iroh_events, replicator_registry, endpoint_task) =
         p2p::iroh::spawn_endpoint_metered(iroh_config, config.counters.clone())
@@ -205,6 +207,7 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
         rate_limit_burst: config.rate_limit_burst,
         rate_limit_rate: config.rate_limit_rate,
         max_pending_dags: config.max_pending_dags,
+        reconcile_enabled: config.reconcile_enabled,
         ..Default::default()
     };
     // Without a real head provider every DocSync reply carries zero heads, so
@@ -232,6 +235,11 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
     let failure_recorder_task = spawn_failure_recorder(store.clone(), failure_rx);
 
     let coordinator = Arc::new(coordinator);
+    if config.reconcile_enabled {
+        coordinator.install_reconcile_source(Arc::new(db_merge::create_reconcile_source(
+            database.clone(),
+        )));
+    }
     coordinator
         .install_pending_dag_store(Arc::new(p2p::sync::PendingDagStore::new(store.clone())))
         .await;
@@ -326,9 +334,16 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
     );
     adapter.set_initial_tracked_documents(restored_doc_ids);
     let ops: Arc<dyn defra_http::P2POperations> = Arc::new(adapter);
+    let reconciler: Option<Arc<dyn crate::reconcile::ReconcileTrigger>> =
+        config.reconcile_enabled.then(|| {
+            Arc::new(crate::reconcile::CoordinatorTrigger::new(
+                coordinator.clone(),
+            )) as Arc<dyn crate::reconcile::ReconcileTrigger>
+        });
 
     Ok(P2PSetupResult {
         ops,
+        reconciler,
         lifecycle: Some(P2PLifecycle::new(P2PLifecycleInner {
             transport,
             coordinator: coordinator.shutdown_handle(),

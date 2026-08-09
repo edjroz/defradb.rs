@@ -18,6 +18,8 @@ pub mod dense_search;
 mod node_acp;
 #[cfg(feature = "p2p")]
 mod p2p_runtime;
+#[cfg(feature = "p2p")]
+pub mod reconcile;
 pub mod search_chunks;
 pub mod version;
 
@@ -122,6 +124,8 @@ pub struct EmbeddedNode {
     #[cfg(feature = "p2p")]
     #[cfg_attr(not(test), allow(dead_code))]
     p2p_blockstore: Option<Arc<dyn blockstore::Blockstore>>,
+    #[cfg(feature = "p2p")]
+    p2p_reconciler: Option<Arc<dyn reconcile::ReconcileTrigger>>,
     #[cfg(feature = "otel")]
     telemetry: std::sync::Mutex<Option<TelemetryHandle>>,
 }
@@ -358,6 +362,13 @@ impl EmbeddedNode {
     #[cfg(all(test, feature = "p2p"))]
     pub(crate) fn p2p_blockstore(&self) -> Option<&Arc<dyn blockstore::Blockstore>> {
         self.p2p_blockstore.as_ref()
+    }
+
+    /// The handle that starts set-reconciliation sessions, present only when
+    /// [`P2PConfig::reconcile_enabled`] was set.
+    #[cfg(feature = "p2p")]
+    pub fn reconciler(&self) -> Option<&Arc<dyn reconcile::ReconcileTrigger>> {
+        self.p2p_reconciler.as_ref()
     }
 
     /// Cloneable P2P operations handle for background tasks.
@@ -1258,9 +1269,14 @@ impl NodeBuilder {
         ));
 
         #[cfg(feature = "p2p")]
-        let (p2p_ops, p2p_lifecycle, p2p_blockstore) = match p2p_result {
-            Some(result) => (Some(result.ops), result.lifecycle, Some(result.blockstore)),
-            None => (None, None, None),
+        let (p2p_ops, p2p_lifecycle, p2p_blockstore, p2p_reconciler) = match p2p_result {
+            Some(result) => (
+                Some(result.ops),
+                result.lifecycle,
+                Some(result.blockstore),
+                result.reconciler,
+            ),
+            None => (None, None, None, None),
         };
 
         Ok(EmbeddedNode {
@@ -1281,6 +1297,8 @@ impl NodeBuilder {
             p2p_lifecycle,
             #[cfg(feature = "p2p")]
             p2p_blockstore,
+            #[cfg(feature = "p2p")]
+            p2p_reconciler,
             #[cfg(feature = "otel")]
             telemetry: std::sync::Mutex::new(telemetry_handle),
         })

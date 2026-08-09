@@ -46,6 +46,7 @@ pub(crate) fn test_p2p_config() -> P2PConfig {
         rate_limit_rate: p2p::sync::DEFAULT_RATE_LIMIT_RATE,
         max_pending_dags: p2p::sync::DEFAULT_MAX_PENDING_DAGS,
         counters: None,
+        reconcile_enabled: false,
     }
 }
 

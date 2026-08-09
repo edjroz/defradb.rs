@@ -122,4 +122,8 @@ pub struct P2PConfig {
     /// Per-protocol application traffic counters for the iroh endpoint. `None`
     /// disables counting.
     pub counters: Option<std::sync::Arc<p2p::metrics::TransportCounters>>,
+    /// Offer and accept set-reconciliation sessions. When false the node does
+    /// not advertise the reconciliation ALPN and
+    /// [`EmbeddedNode::reconciler`](crate::EmbeddedNode::reconciler) is `None`.
+    pub reconcile_enabled: bool,
 }
