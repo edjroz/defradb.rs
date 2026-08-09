@@ -11,6 +11,7 @@
 use libfuzzer_sys::fuzz_target;
 use p2p::reconcile::codec;
 use p2p::reconcile::engine::rbsr::RbsrMessage;
+use p2p::reconcile::engine::riblt::RibltMessage;
 
 fuzz_target!(|data: &[u8]| {
     let _ = codec::peek_header(data);
@@ -19,6 +20,13 @@ fuzz_target!(|data: &[u8]| {
         let reencoded = codec::encode(&message).expect("a decoded message must re-encode");
         let round_tripped =
             codec::decode::<RbsrMessage>(&reencoded).expect("a re-encoded message must decode");
+        assert_eq!(message, round_tripped, "codec round trip must be lossless");
+    }
+
+    if let Ok(message) = codec::decode::<RibltMessage>(data) {
+        let reencoded = codec::encode(&message).expect("a decoded message must re-encode");
+        let round_tripped =
+            codec::decode::<RibltMessage>(&reencoded).expect("a re-encoded message must decode");
         assert_eq!(message, round_tripped, "codec round trip must be lossless");
     }
 });

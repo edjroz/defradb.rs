@@ -101,6 +101,10 @@ proptest = { workspace = true }
 name = "reconcile"
 harness = false
 
+[[bench]]
+name = "riblt"
+harness = false
+
 [package.metadata.cargo-machete]
 ignored = ["noq"]
 

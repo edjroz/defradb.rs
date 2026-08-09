@@ -109,3 +109,7 @@ mod engine_tests;
 #[cfg(test)]
 #[path = "mapping_tests.rs"]
 mod mapping_tests;
+
+#[cfg(test)]
+#[path = "overhead_tests.rs"]
+mod overhead_tests;

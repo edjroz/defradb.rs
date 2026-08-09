@@ -27,4 +27,11 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "reconcile_riblt"
+path = "fuzz_targets/reconcile_riblt.rs"
+test = false
+doc = false
+bench = false
+
 [workspace]
