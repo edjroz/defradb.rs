@@ -137,3 +137,11 @@ pub mod riblt;
 #[cfg(test)]
 #[path = "engine_tests.rs"]
 mod engine_tests;
+
+#[cfg(test)]
+#[path = "engine/comparison.rs"]
+mod comparison;
+
+#[cfg(test)]
+#[path = "engine/comparison_tests.rs"]
+mod comparison_tests;
