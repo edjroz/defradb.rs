@@ -48,10 +48,14 @@
 //!    Consequence for comparability: none for symbol counts, which depend on the
 //!    hash only through its uniformity. Anything comparing raw cells across
 //!    implementations must use this hash, which is what the vectors do.
-//! 2. **A decodable cell with a count outside `-1..=1` is skipped, not a
-//!    panic.** The reference's invariant holds for a well-formed stream; these
-//!    cells come off a network. The session then ends on its symbol cap, which
-//!    is an error rather than a panicking node.
+//! 2. **The reference's `panic` on an impossible cell is replaced by two
+//!    invariants, not by a skip.** The reference is explicit that it is built
+//!    for trusted input and enforces that with a panic; a node cannot panic, and
+//!    simply skipping the cell removes the check without replacing what made it
+//!    unreachable. So convergence is counted as "every residual is the identity"
+//!    rather than "every queued cell was visited", and a cell that has ever been
+//!    fully explained is never peeled again. See [`decoder`] for why both are
+//!    load-bearing and what is deliberately not claimed.
 //! 3. **The session is a pull, not a push.** The paper's encoder streams until
 //!    told to stop. The shared session loop drains what a side has to say and
 //!    then waits, so an encoder that always had another cell would never yield.
@@ -93,6 +97,10 @@ mod simulate;
 
 #[cfg(test)]
 mod convergence_proptests;
+
+#[cfg(test)]
+#[path = "adversarial_tests.rs"]
+mod adversarial_tests;
 
 #[cfg(test)]
 #[path = "decoder_tests.rs"]

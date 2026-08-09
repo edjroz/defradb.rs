@@ -117,12 +117,24 @@ impl CodedSymbol {
     }
 
     /// Whether the cell holds exactly one symbol, which its checksum confirms.
+    ///
+    /// A zero-width cell is never pure however its checksum reads. Symbols are
+    /// item identities and the empty identity is not an item, so a session that
+    /// reconciles nothing must not be able to peel something out of it.
     pub(super) fn is_pure(&self) -> bool {
-        (self.count == 1 || self.count == -1) && self.checksum == symbol_hash(&self.sum)
+        !self.sum.is_empty()
+            && (self.count == 1 || self.count == -1)
+            && self.checksum == symbol_hash(&self.sum)
     }
 
-    /// Whether the cell holds nothing left to peel.
+    /// Whether the cell is the identity — nothing left in it to explain.
+    ///
+    /// All three fields, not just the count and the checksum. Two of the three
+    /// are the peer's to choose freely, so a cell carrying an arbitrary sum with
+    /// a zeroed count and checksum would otherwise read as a fully explained
+    /// residual, which is a decoder concluding it is in sync from a frame that
+    /// told it nothing.
     pub(super) fn is_empty(&self) -> bool {
-        self.count == 0 && self.checksum == 0
+        self.count == 0 && self.checksum == 0 && self.sum.iter().all(|byte| *byte == 0)
     }
 }
