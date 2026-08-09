@@ -52,8 +52,9 @@ pub enum EngineKind {
     /// rounds, and the only one that can scope a session to a sub-range.
     #[default]
     Rbsr = 0,
-    /// Rateless sketch reconciliation: `O(d)` bytes independent of set size, in
-    /// about half a round trip, at the cost of a probabilistic symbol count.
+    /// Rateless sketch reconciliation: `O(d)` bytes independent of set size, at
+    /// the cost of a probabilistic symbol count and `O(log d)` round trips —
+    /// one when the sets agree, nine at a difference of a thousand.
     Riblt = 1,
 }
 

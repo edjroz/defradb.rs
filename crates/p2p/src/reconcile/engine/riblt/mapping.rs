@@ -47,9 +47,10 @@ impl RandomMapping {
     ///   index is compared against a coded-symbol count capped far below
     ///   `u64::MAX`, so this is unreachable in a session; it keeps the sequence
     ///   monotonic for anything a fuzzer invents.
-    /// - The step is at least one. A `u64` draw within about `2^11` of the top
-    ///   rounds to `2^64` in double precision, making the computed step exactly
-    ///   zero — roughly a `2^-53` event per draw. The reference would then map a
+    /// - The step is at least one. Doubles are spaced `2^11` apart just below
+    ///   `2^64`, so a `u64` draw in the top half of that gap — `2^10` values —
+    ///   rounds up to `2^64`, making the computed step exactly zero. About
+    ///   `2^-54` per draw. The reference would then map a
     ///   symbol to the same coded symbol twice in a row, and because the group
     ///   operation is its own inverse, the second application would silently
     ///   cancel the first. Enforcing a strictly increasing sequence costs

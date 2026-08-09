@@ -11,8 +11,8 @@
 //! # Two engines, one seam
 //!
 //! [`engine::rbsr`] narrows an ordered keyspace over `O(log n)` interactive
-//! rounds; [`engine::riblt`] streams coded symbols whose cost is `O(d)` and
-//! independent of set size, in about half a round trip. They differ in almost
+//! rounds; [`engine::riblt`] pulls coded symbols whose cost is `O(d)` and
+//! independent of set size, over `O(log d)` rounds. They differ in almost
 //! everything — one needs a total order and the other needs none, one is
 //! deterministic and the other probabilistic — and agree on the two things that
 //! matter above this module: both produce a [`Diff`], and neither fetches,

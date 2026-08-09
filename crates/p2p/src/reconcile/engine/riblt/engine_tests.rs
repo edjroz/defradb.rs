@@ -13,11 +13,12 @@ use crate::reconcile::source::{Item, ItemId, MemorySource};
 /// sets. Same difference of two, a set fifty times larger, and neither the
 /// symbol count nor the round count moves.
 ///
-/// The byte count moves by two, and only by two, because a cell's count field
-/// is the number of members it holds and the first cell of a stream holds the
-/// whole set — so `50002` costs two more CBOR bytes than `1002`. That is the
-/// only term in a RIBLT session that grows with `n` at all, and it grows
-/// logarithmically in a single field.
+/// The byte count moves by two, and only by two, and not for the reason it
+/// first looks like. It is not cell zero's count: `1002` and `50002` are both
+/// three CBOR bytes. It is cells six and seven, whose member counts are just
+/// under 256 at the smaller set and just over it at the larger, costing one
+/// byte each. The count fields are the only term in a session that grows with
+/// `n` at all, and they grow as the log of it, one CBOR width step at a time.
 #[test]
 fn the_cost_tracks_the_difference_not_the_set_size() {
     let small = run(&source(0..1_000), &source(0..1_002)).expect("converges");

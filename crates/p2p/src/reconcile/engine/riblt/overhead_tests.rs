@@ -230,3 +230,33 @@ fn the_overhead_does_not_move_with_the_shared_set() {
          in two thousand shared items"
     );
 }
+
+/// Where the four bytes between the `d = 1` rows of the overshoot table come
+/// from. Not a claim about the protocol — a claim about CBOR integer widths,
+/// which is exactly the sort of thing a comparison campaign misattributes.
+#[test]
+#[ignore = "prints an attribution rather than asserting"]
+fn where_the_agreement_bytes_differ() {
+    for n in [1_000usize, 10_000, 100_000] {
+        let mut encoder = Encoder::new(36);
+        for seed in 0..n as u64 {
+            encoder.add(id(seed).as_bytes().to_vec());
+        }
+        let counts: Vec<i64> = (0..caps::INITIAL_SYMBOL_BATCH)
+            .map(|_| encoder.produce_next().count())
+            .collect();
+        let widths: Vec<usize> = counts
+            .iter()
+            .map(|count| match count {
+                0..=23 => 1,
+                24..=255 => 2,
+                256..=65_535 => 3,
+                _ => 5,
+            })
+            .collect();
+        println!(
+            "n={n} counts={counts:?} cbor_widths={widths:?} total={}",
+            widths.iter().sum::<usize>()
+        );
+    }
+}

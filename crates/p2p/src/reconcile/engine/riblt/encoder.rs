@@ -2,8 +2,10 @@
 //!
 //! The encoder learns nothing. It never sees the peer's set, never branches on
 //! anything the peer said, and produces the same stream for every peer — which
-//! is what makes one stream broadcastable to many behind peers, and what makes
-//! the whole protocol half a round trip rather than a narrowing conversation.
+//! is what makes one stream broadcastable to many behind peers, and what keeps
+//! the protocol from being a narrowing conversation. It does not make it half a
+//! round trip: the decoder pulls in batches, so a session costs `O(log d)`
+//! rounds. See the module doc.
 //!
 //! Its cost is the honest one: the set is enumerated once per session, at
 //! `O(n)` to load plus `O(log m)` amortized per emitted cell. The accepted

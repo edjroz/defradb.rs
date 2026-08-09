@@ -4,11 +4,11 @@
 //! proportional to `|A △ B|` and *independent of `|A ∪ B|`*. The paper's
 //! protocol is half a round trip — one side streams until told to stop — but
 //! this one is not: deviation 3 below turns the stream into a pull with
-//! doubling batches, so a session takes `O(log d)` round trips, measured at one
-//! up to `d = 8`, six at `d = 100` and nine at `d = 1000`. That is still far
-//! fewer bytes than the range engine at small `d`, and it is *not* the
-//! round-trip win the paper describes; anything reasoning about high-latency
-//! links has to use the measured rounds.
+//! doubling batches, so a session takes `O(log d)` round trips — measured at one
+//! for `d = 0` and `d = 1`, three at `d = 8`, six at `d = 100` and nine at
+//! `d = 1000`. That is still far fewer bytes than the range engine at small
+//! `d`, and it is *not* the round-trip win the paper describes; anything
+//! reasoning about high-latency links has to use the measured rounds.
 //!
 //! Where the [`rbsr`](super::rbsr) engine spends interactive rounds
 //! locating the difference inside an ordered keyspace, this engine never locates
@@ -37,15 +37,20 @@
 //!
 //! ## Adopted from the reference unchanged
 //!
-//! - The index mapping: PRNG state seeded with the symbol's hash, multiplied by
-//!   `0xda942042e4dd58b5` per step, with the approximated inverse-CDF jump that
-//!   gives participation probability `1/(1+i/2)`. Pinned bit for bit against
+//! - The index mapping's arithmetic: PRNG state seeded with the symbol's hash,
+//!   multiplied by `0xda942042e4dd58b5` per step, with the approximated
+//!   inverse-CDF jump that gives participation probability `1/(1+i/2)`. Every
+//!   index the reference produces, this produces — see deviation 6 for the one
+//!   input where it produces an index the reference does not. Pinned against
 //!   reference vectors in `mapping_tests.rs`.
 //! - The coded symbol: XOR of member symbols, XOR of member hashes, signed
 //!   member count. Pinned cell for cell in `encoder_tests.rs`.
-//! - The decoder's three windows and its peel, including the invariant that a
-//!   cell queued as decodable stays decodable. Nine whole decode runs are
-//!   pinned in `decoder_tests.rs`, including the exact symbol count each took.
+//! - The decoder's three windows and the peel itself: which cell is pure, which
+//!   symbol comes out of it, and which half of the difference it lands in. Nine
+//!   whole decode runs are pinned in `decoder_tests.rs`, including the exact
+//!   symbol count each took — so what is adopted is the *coding*, and what is
+//!   not is when the decoder decides it has finished (deviation 2) and what it
+//!   will believe about its own set (deviation 7).
 //!
 //! ## Deliberate deviations
 //!
@@ -78,6 +83,17 @@
 //!    is fixed at compile time; here the width comes from the item identity, is
 //!    stated in every frame, and is bounded by
 //!    [`caps::MAX_SYMBOL_BYTES`] — because a peer can declare it.
+//! 6. **A mapping step is at least one.** A `u64` draw in the top `2^10` of the
+//!    range makes the reference's step arithmetic yield exactly zero, which maps
+//!    a symbol into one cell twice and, the operation being self-inverse,
+//!    cancels it out of a cell it belongs in. About `2^-54` per draw, so it
+//!    cannot change any vector, and a floor of one cannot change a step the
+//!    reference computes as non-zero. See [`mapping`].
+//! 7. **A `-1` residual must name a symbol the local set holds.** The reference
+//!    has no reason to check: its caller supplies both sides. Here the peer
+//!    supplies one of them, and without the check it can name anything at all as
+//!    something this node holds. See [`decoder`] for why this cannot reject an
+//!    honest stream, and for why the other half is not checkable at all.
 //!
 //! One thing that is *not* protocol, and matters when comparing byte counts:
 //! `ciborium` encodes each cell as a map with string keys, so a cell costs 68
