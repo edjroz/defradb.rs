@@ -8,6 +8,7 @@ use p2p::metrics::TransportCounters;
 
 use super::csv::MeasurementRow;
 use super::documents::{block_stats, doc_values, COLLECTION, SDL};
+use super::run::RunOutcome;
 use crate::{EmbeddedNode, P2PConfig};
 
 /// Overall budget for one scenario's convergence, across all rounds.
@@ -50,7 +51,7 @@ fn init_tracing() {
     });
 }
 
-fn bench_p2p_config(counters: Arc<TransportCounters>) -> P2PConfig {
+fn bench_p2p_config(counters: Arc<TransportCounters>, reconcile_enabled: bool) -> P2PConfig {
     P2PConfig {
         port: 0,
         bind_addr: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
@@ -66,6 +67,7 @@ fn bench_p2p_config(counters: Arc<TransportCounters>) -> P2PConfig {
         rate_limit_rate: p2p::sync::DEFAULT_RATE_LIMIT_RATE,
         max_pending_dags: p2p::sync::DEFAULT_MAX_PENDING_DAGS,
         counters: Some(counters),
+        reconcile_enabled,
     }
 }
 
@@ -85,11 +87,18 @@ impl NodePair {
     /// Go harness used, and the only way the measured traffic is the
     /// reconciliation traffic.
     pub(crate) async fn isolated() -> Self {
+        Self::isolated_with_reconcile(false).await
+    }
+
+    /// As [`Self::isolated`], but both nodes offer and accept reconciliation
+    /// sessions. Both sides must opt in: the responder only advertises the
+    /// reconciliation ALPN when it has.
+    pub(crate) async fn isolated_with_reconcile(reconcile_enabled: bool) -> Self {
         init_tracing();
         let writer_counters = TransportCounters::new();
         let reader_counters = TransportCounters::new();
-        let writer = build_node(Arc::clone(&writer_counters)).await;
-        let reader = build_node(Arc::clone(&reader_counters)).await;
+        let writer = build_node(Arc::clone(&writer_counters), reconcile_enabled).await;
+        let reader = build_node(Arc::clone(&reader_counters), reconcile_enabled).await;
 
         Self {
             writer,
@@ -119,6 +128,14 @@ impl NodePair {
             .expect("connect reader -> writer");
         wait_for_peer(&self.writer).await;
         wait_for_peer(&self.reader).await;
+    }
+
+    pub(crate) fn reader_snapshot(&self) -> p2p::metrics::CountersSnapshot {
+        self.reader_counters.snapshot()
+    }
+
+    pub(crate) fn writer_snapshot(&self) -> p2p::metrics::CountersSnapshot {
+        self.writer_counters.snapshot()
     }
 
     pub(crate) fn reset_counters(&self) {
@@ -174,6 +191,29 @@ impl NodePair {
         let wall_ms = started.elapsed().as_secs_f64() * 1000.0;
         let state_match = converged && self.divergent(doc_ids).await.is_empty();
 
+        self.rows(&RunOutcome {
+            scenario: scenario.to_string(),
+            mode: "default",
+            wall_ms,
+            rounds,
+            converged,
+            state_match,
+        })
+        .await
+    }
+
+    /// The peer ID the reader must name to reach the writer.
+    pub(crate) async fn writer_peer_id(&self) -> String {
+        self.writer
+            .p2p()
+            .expect("writer p2p")
+            .local_peer_id()
+            .await
+            .expect("local_peer_id")
+    }
+
+    /// One row per node for a run that has already finished.
+    pub(crate) async fn rows(&self, outcome: &RunOutcome) -> Vec<MeasurementRow> {
         let mut rows = Vec::with_capacity(2);
         for (node_id, node, counters) in [
             (0, &self.writer, &self.writer_counters),
@@ -184,25 +224,25 @@ impl NodePair {
             rows.push(MeasurementRow {
                 topology: "pair".to_string(),
                 n: 2,
-                scenario: scenario.to_string(),
-                mode: "default".to_string(),
+                scenario: outcome.scenario.clone(),
+                mode: outcome.mode.to_string(),
                 node_id,
                 ctrl_bytes_sent: snapshot.control_bytes_sent(),
                 ctrl_bytes_recv: snapshot.control_bytes_recv(),
                 ctrl_msgs: snapshot.control_msgs(),
                 blocks,
                 block_bytes,
-                wall_ms,
-                rounds,
-                converged,
-                state_match,
+                wall_ms: outcome.wall_ms,
+                rounds: outcome.rounds,
+                converged: outcome.converged,
+                state_match: outcome.state_match,
             });
         }
         rows
     }
 
     /// Documents the two nodes do not agree on right now.
-    async fn divergent(&self, doc_ids: &[String]) -> Vec<String> {
+    pub(crate) async fn divergent(&self, doc_ids: &[String]) -> Vec<String> {
         let writer = doc_values(&self.writer).await;
         let reader = doc_values(&self.reader).await;
         doc_ids
@@ -218,7 +258,7 @@ impl NodePair {
     /// Returns as soon as the divergent set holds steady for [`ROUND_STABLE`],
     /// so a sweep of many chunked rounds does not pay the full settle window
     /// each time.
-    async fn settle(&self, doc_ids: &[String]) -> Vec<String> {
+    pub(crate) async fn settle(&self, doc_ids: &[String]) -> Vec<String> {
         let deadline = Instant::now() + ROUND_SETTLE;
         let mut pending = self.divergent(doc_ids).await;
         let mut steady_since = Instant::now();
@@ -242,9 +282,9 @@ impl NodePair {
     }
 }
 
-async fn build_node(counters: Arc<TransportCounters>) -> EmbeddedNode {
+async fn build_node(counters: Arc<TransportCounters>, reconcile_enabled: bool) -> EmbeddedNode {
     let node = EmbeddedNode::builder()
-        .with_p2p(bench_p2p_config(counters))
+        .with_p2p(bench_p2p_config(counters, reconcile_enabled))
         .build()
         .await
         .expect("build bench node");

@@ -13,45 +13,18 @@
 //! then asserts convergence as identical document sets — recording first, so a
 //! run that does not converge leaves a `converged=False` row rather than none.
 
-use std::path::PathBuf;
-
-use super::csv::{self, MeasurementRow};
+use super::csv::MeasurementRow;
 use super::documents::{apply_updates, seed_docs};
 use super::harness::NodePair;
+use super::output::{assert_converged, record};
 use super::scenario::DivergenceFixture;
 
 /// Fixed so every recorded row is reproducible.
-const SEED: u64 = 0x5EED_C0FFEE;
-
-fn out_dir() -> PathBuf {
-    std::env::var("DEFRA_SYNC_BENCH_OUT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("target/sync-bench"))
-}
-
-fn record(name: &str, rows: &[MeasurementRow]) {
-    let path = out_dir().join(format!("{name}.csv"));
-    csv::write(&path, rows).expect("write measurement csv");
-    println!("{}\n{}", path.display(), csv::render(rows));
-}
-
-/// Every row is recorded before it is judged, so a scenario that fails to
-/// converge still leaves an honest `converged=False` row behind rather than
-/// no row at all.
-fn assert_converged(rows: &[MeasurementRow]) {
-    for row in rows {
-        assert!(
-            row.converged && row.state_match,
-            "{} node {} did not reach an identical document set",
-            row.scenario,
-            row.node_id
-        );
-    }
-}
+pub(super) const SEED: u64 = 0x5EED_C0FFEE;
 
 /// Cold start: the reader holds nothing and pulls the writer's whole
 /// collection. Divergence is total, so this is the `d == n` corner.
-async fn cold_start(docs: usize) -> Vec<MeasurementRow> {
+pub(super) async fn cold_start(docs: usize) -> Vec<MeasurementRow> {
     let fixture = DivergenceFixture::new(SEED, docs, 0);
     let pair = NodePair::isolated().await;
     let doc_ids = seed_docs(&pair.writer, &fixture).await;
@@ -73,7 +46,7 @@ async fn cold_start(docs: usize) -> Vec<MeasurementRow> {
 /// identical content produce sibling DAGs and turn a one-sided update into a
 /// concurrent-write merge. Syncing first is also the ordering the Go harness
 /// used, and it keeps the measured traffic to the divergence alone.
-async fn tiny_diff(docs: usize, diverged: usize) -> Vec<MeasurementRow> {
+pub(super) async fn tiny_diff(docs: usize, diverged: usize) -> Vec<MeasurementRow> {
     let fixture = DivergenceFixture::new(SEED, docs, diverged);
     let pair = NodePair::isolated().await;
     let doc_ids = seed_docs(&pair.writer, &fixture).await;

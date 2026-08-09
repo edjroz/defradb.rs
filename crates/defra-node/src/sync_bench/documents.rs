@@ -49,6 +49,35 @@ pub(crate) async fn apply_updates(
     }
 }
 
+/// Wait until the node's own document state stops moving.
+///
+/// A reconciliation session snapshots the collection's head set once, at the
+/// moment it starts. Measuring while the writer is still sealing commits would
+/// make the recorded cost depend on how far the writes happened to have got,
+/// which is a property of the run order and not of the protocol. Every measured
+/// session is preceded by this.
+pub(crate) async fn quiesce(node: &EmbeddedNode) {
+    const POLL: std::time::Duration = std::time::Duration::from_millis(100);
+    const STABLE_FOR: std::time::Duration = std::time::Duration::from_millis(750);
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+
+    let started = std::time::Instant::now();
+    let mut last = doc_values(node).await;
+    let mut steady_since = std::time::Instant::now();
+    while started.elapsed() < DEADLINE {
+        tokio::time::sleep(POLL).await;
+        let current = doc_values(node).await;
+        if current != last {
+            steady_since = std::time::Instant::now();
+            last = current;
+            continue;
+        }
+        if steady_since.elapsed() >= STABLE_FOR {
+            return;
+        }
+    }
+}
+
 fn created_doc_id(data: &Option<JsonValue>, errors: &[impl std::fmt::Debug]) -> String {
     assert!(errors.is_empty(), "mutation failed: {errors:?}");
     data.as_ref()
