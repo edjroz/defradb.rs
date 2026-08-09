@@ -150,15 +150,25 @@ fn out_path() -> PathBuf {
 /// Unlike the engine-level measurement this reads a real store, so neither the
 /// time nor the allocation total is guaranteed steady and a single draw would
 /// not say which.
+///
+/// The four sizes are what makes this a shape measurement rather than three
+/// numbers. Per-item build cost used to double with every doubling of `n` —
+/// 0.81, 1.60, 3.22 ms at 250, 500 and 1,000 — because the snapshot opened one
+/// store iterator per document and opening one costs time proportional to the
+/// whole store. The assertion at the end is the shape, with enough headroom
+/// that machine noise cannot trip it: quadratic multiplies the per-item cost by
+/// eight across this range, linear leaves it flat.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "benchmark: builds a real node and seeds up to a thousand documents"]
+#[ignore = "benchmark: builds a real node and seeds up to two thousand documents"]
 async fn node_level_session_cost() {
     const RUNS: usize = 3;
+    const SIZES: [usize; 4] = [250, 500, 1000, 2000];
     let mut csv = String::from(
-        "side,n,runs,items,buildMsMin,buildMsMedian,retainedBytesMin,retainedBytesMedian,bytesPerItemMedian\n",
+        "side,n,runs,items,buildMsMin,buildMsMedian,retainedBytesMin,retainedBytesMedian,bytesPerItemMedian,msPerItemMedian\n",
     );
+    let mut per_item_ms = Vec::with_capacity(SIZES.len());
 
-    for docs in [250usize, 500, 1000] {
+    for docs in SIZES {
         let node = node_with_documents(docs).await;
 
         let mut times = Vec::with_capacity(RUNS);
@@ -176,12 +186,14 @@ async fn node_level_session_cost() {
         retained.sort_unstable();
         let median_bytes = retained[RUNS / 2];
         let per_item = median_bytes as f64 / items.max(1) as f64;
+        let ms_per_item = times[RUNS / 2] / items.max(1) as f64;
+        per_item_ms.push((docs, ms_per_item));
         println!(
-            "n={docs}: {items} items, build {:.2} ms (median of {RUNS}), retained {median_bytes} B, {per_item:.1} B/item",
+            "n={docs}: {items} items, build {:.2} ms (median of {RUNS}), {ms_per_item:.4} ms/item, retained {median_bytes} B, {per_item:.1} B/item",
             times[RUNS / 2]
         );
         csv.push_str(&format!(
-            "node_session_storage,{docs},{RUNS},{items},{:.2},{:.2},{},{median_bytes},{per_item:.1}\n",
+            "node_session_storage,{docs},{RUNS},{items},{:.2},{:.2},{},{median_bytes},{per_item:.1},{ms_per_item:.4}\n",
             times[0], times[RUNS / 2], retained[0]
         ));
     }
@@ -192,4 +204,12 @@ async fn node_level_session_cost() {
     }
     std::fs::write(&path, &csv).expect("write node session cost csv");
     println!("{}\n{csv}", path.display());
+
+    let (small_n, small) = per_item_ms[0];
+    let (large_n, large) = per_item_ms[per_item_ms.len() - 1];
+    assert!(
+        large <= small * 2.0,
+        "per-item build cost went from {small:.4} ms at n={small_n} to {large:.4} ms at n={large_n}; \
+         a per-item cost that grows with n is a superlinear read, not a constant factor"
+    );
 }

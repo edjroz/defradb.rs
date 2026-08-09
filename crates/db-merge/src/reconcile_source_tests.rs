@@ -10,24 +10,31 @@ use storage::backends::MemoryStore;
 use super::*;
 
 const COLLECTION: &str = "Note";
+const OTHER_COLLECTION: &str = "Memo";
 
 async fn database() -> Arc<DB<MemoryStore>> {
     let db = Arc::new(DB::from_arc(Arc::new(MemoryStore::new())).unwrap());
-    db.create_collection(CollectionVersion::new(
-        COLLECTION,
-        "v1",
-        "col-note",
-        vec![
-            FieldDescription::new("1", "_docID", FieldKind::doc_id()),
-            FieldDescription::new("2", "body", FieldKind::string()),
-        ],
-    ))
-    .await
-    .unwrap();
+    for (name, id) in [(COLLECTION, "col-note"), (OTHER_COLLECTION, "col-memo")] {
+        db.create_collection(CollectionVersion::new(
+            name,
+            "v1",
+            id,
+            vec![
+                FieldDescription::new("1", "_docID", FieldKind::doc_id()),
+                FieldDescription::new("2", "body", FieldKind::string()),
+            ],
+        ))
+        .await
+        .unwrap();
+    }
     db
 }
 
 async fn add_notes(db: &Arc<DB<MemoryStore>>, bodies: &[&str]) {
+    add_to(db, COLLECTION, bodies).await;
+}
+
+async fn add_to(db: &Arc<DB<MemoryStore>>, collection: &str, bodies: &[&str]) {
     let mutator = AutoCommitMutator::new(db.clone());
     let docs = bodies
         .iter()
@@ -37,7 +44,7 @@ async fn add_notes(db: &Arc<DB<MemoryStore>>, bodies: &[&str]) {
             doc
         })
         .collect();
-    mutator.create_many(COLLECTION, docs).await.unwrap();
+    mutator.create_many(collection, docs).await.unwrap();
 }
 
 fn item_ids(source: &MemorySource) -> BTreeSet<Vec<u8>> {
@@ -96,6 +103,28 @@ async fn every_document_contributes_a_head() {
         .unwrap();
     assert_eq!(source.len(), 4);
     assert_eq!(item_ids(&source).len(), 4, "heads must be distinct");
+}
+
+/// The headstore is keyed by document, not by collection, so the one pass this
+/// snapshot makes over it sees every collection's heads. Only the named
+/// collection's may survive the filter — a session that reported a neighbouring
+/// collection's heads would ask its peer for blocks it never offered.
+#[tokio::test]
+async fn a_neighbouring_collection_contributes_nothing() {
+    let db = database().await;
+    add_notes(&db, &["a", "b"]).await;
+    add_to(&db, OTHER_COLLECTION, &["x", "y", "z"]).await;
+
+    let provider = DbReconcileSource::new(db);
+    let notes = provider.snapshot(COLLECTION).await.unwrap();
+    let memos = provider.snapshot(OTHER_COLLECTION).await.unwrap();
+
+    assert_eq!(notes.len(), 2);
+    assert_eq!(memos.len(), 3);
+    assert!(
+        item_ids(&notes).is_disjoint(&item_ids(&memos)),
+        "the two collections' snapshots must not share an item"
+    );
 }
 
 #[tokio::test]

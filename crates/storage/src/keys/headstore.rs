@@ -4,6 +4,9 @@ use cid::Cid;
 
 const PRIORITY_HEX_WIDTH: usize = 16;
 
+/// Prefix every document head key shares: `/d/`.
+pub const HEADSTORE_DOC_PREFIX: &[u8] = b"/d/";
+
 /// HeadstoreDocKey: Links documents to their current block head CID
 ///
 /// Structure: /d/[DocShortID uvarint]/[FieldID]/[CID]
@@ -30,7 +33,7 @@ impl HeadstoreDocKey {
 
     /// Create a prefix for all heads in a document
     pub fn document_prefix(doc_short_id: u64) -> Vec<u8> {
-        let mut buf = b"/d/".to_vec();
+        let mut buf = HEADSTORE_DOC_PREFIX.to_vec();
         buf.extend_from_slice(&encode_doc_short_id(doc_short_id));
         buf.push(b'/');
         buf
