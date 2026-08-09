@@ -30,6 +30,15 @@ pub(crate) struct MeasurementRow {
     pub converged: bool,
     /// Convergence asserted as identical document sets, not block counts.
     pub state_match: bool,
+    /// Payload traffic on this node for the measured window.
+    ///
+    /// Deliberately absent from the rendered columns: the fourteen above are the
+    /// Go harness's schema and widening it would orphan every Rust row from the
+    /// overlay. These travel in the payload sidecar instead, which exists
+    /// because comparing final blockstore contents proves the modes *converged*
+    /// on the same content and says nothing about what each moved to get there.
+    pub payload_bytes_sent: u64,
+    pub payload_bytes_recv: u64,
 }
 
 fn python_bool(value: bool) -> &'static str {
@@ -95,6 +104,8 @@ mod tests {
             rounds: 1,
             converged: true,
             state_match: true,
+            payload_bytes_sent: 648_518,
+            payload_bytes_recv: 0,
         }
     }
 
@@ -117,6 +128,15 @@ blocks,blockBytes,wallMs,rounds,converged,stateMatch"
             Some("pair,2,tiny-diff,default,0,68084,21011,3,3007,648518,2537.3,1,True,True")
         );
         assert_eq!(lines.next(), None);
+    }
+
+    /// Payload is recorded but never rendered here: the Go overlay reads these
+    /// fourteen columns positionally.
+    #[test]
+    fn payload_stays_out_of_the_go_schema() {
+        let rendered = render(&[row()]);
+        assert!(!rendered.contains("payload"));
+        assert_eq!(rendered.lines().next().unwrap().split(',').count(), 14);
     }
 
     #[test]

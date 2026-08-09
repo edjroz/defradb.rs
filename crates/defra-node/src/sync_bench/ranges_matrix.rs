@@ -1,31 +1,40 @@
-//! The `mode=ranges` measurement matrix, run against two real iroh nodes.
+//! The three-way measurement matrix, run against real iroh nodes.
 //!
-//! Each point runs the same fixture twice — once over the shipped DocSync path
-//! and once over reconciliation — in one process, records both rows in one CSV,
-//! and asserts that only the discovery cost changed. Recording both in the same
-//! process is deliberate: a comparison between a row taken today and a row
-//! taken on another day carries every difference between the two days.
+//! Each point runs the same fixture three times in one process — over the
+//! shipped DocSync path, over RBSR, and over RIBLT — records all three modes'
+//! rows in one CSV, and asserts that only the discovery cost changed. Recording
+//! them in the same process is deliberate: a comparison between a row taken
+//! today and a row taken on another day carries every difference between the
+//! two days, and this campaign's whole claim is that only the protocol differs.
 //!
-//! These are `#[ignore]`d because each one builds four iroh nodes and waits on
+//! These are `#[ignore]`d because each one builds six iroh nodes and waits on
 //! real convergence. Run them explicitly, e.g.
 //!
 //! ```text
 //! DEFRA_SYNC_BENCH_OUT=/tmp/ranges \
 //!   cargo test -p defra-node --features p2p --lib \
-//!   sync_bench::ranges_matrix::ranges_m5_docs50 -- --ignored --nocapture
+//!   sync_bench::ranges_matrix::matrix_m5_docs50 -- --ignored --nocapture
 //! ```
+
+use p2p::reconcile::EngineKind;
 
 use super::baseline::{self, SEED};
 use super::csv::MeasurementRow;
 use super::documents::{apply_updates, quiesce, seed_docs};
 use super::harness::NodePair;
-use super::output::{assert_converged, assert_payload_identity, record, record_sessions};
+use super::output::{
+    assert_converged, assert_payload_identity, flag_payload_divergence, record, record_payload,
+    record_sessions,
+};
 use super::ranges::RangesRun;
 use super::scenario::DivergenceFixture;
 
+/// Both engines, in the order their rows are recorded.
+const ENGINES: [EngineKind; 2] = [EngineKind::Rbsr, EngineKind::Riblt];
+
 /// Cold start over reconciliation: the reader holds nothing, so the session's
 /// need set is the writer's whole head set. The `d == n` corner.
-async fn ranges_cold_start(docs: usize, scenario: &str) -> RangesRun {
+async fn ranges_cold_start(docs: usize, scenario: &str, engine: EngineKind) -> RangesRun {
     let fixture = DivergenceFixture::new(SEED, docs, 0);
     let pair = NodePair::isolated_with_reconcile(true).await;
     let doc_ids = seed_docs(&pair.writer, &fixture).await;
@@ -33,7 +42,7 @@ async fn ranges_cold_start(docs: usize, scenario: &str) -> RangesRun {
 
     pair.connect().await;
     pair.reset_counters();
-    let run = pair.measure_reconcile(scenario, &doc_ids).await;
+    let run = pair.measure_reconcile(scenario, &doc_ids, engine).await;
     pair.shutdown().await;
     run
 }
@@ -41,7 +50,16 @@ async fn ranges_cold_start(docs: usize, scenario: &str) -> RangesRun {
 /// The shared base is established with reconciliation as well, so the measured
 /// session is the only thing that differs between a base and a diverged run and
 /// the setup does not pay the default path's timeout ladder.
-async fn ranges_tiny_diff(docs: usize, diverged: usize, scenario: &str) -> RangesRun {
+///
+/// The base is established on the **same engine** the measured session runs on:
+/// a base reached by one protocol and measured by another would put a
+/// difference in the setup of the comparison.
+async fn ranges_tiny_diff(
+    docs: usize,
+    diverged: usize,
+    scenario: &str,
+    engine: EngineKind,
+) -> RangesRun {
     let fixture = DivergenceFixture::new(SEED, docs, diverged);
     let pair = NodePair::isolated_with_reconcile(true).await;
     let doc_ids = seed_docs(&pair.writer, &fixture).await;
@@ -49,7 +67,7 @@ async fn ranges_tiny_diff(docs: usize, diverged: usize, scenario: &str) -> Range
 
     pair.connect().await;
     let base = pair
-        .measure_reconcile(&format!("{scenario}_base"), &doc_ids)
+        .measure_reconcile(&format!("{scenario}_base"), &doc_ids, engine)
         .await;
     if base
         .rows
@@ -65,7 +83,7 @@ async fn ranges_tiny_diff(docs: usize, diverged: usize, scenario: &str) -> Range
     apply_updates(&pair.writer, &doc_ids, &fixture).await;
     quiesce(&pair.writer).await;
     pair.reset_counters();
-    let run = pair.measure_reconcile(scenario, &doc_ids).await;
+    let run = pair.measure_reconcile(scenario, &doc_ids, engine).await;
     pair.shutdown().await;
     run
 }
@@ -128,31 +146,50 @@ fn report_session_cost(scenario: &str, run: &RangesRun) {
     );
 }
 
-/// Record both modes' rows for one scenario and assert the only difference is
-/// discovery cost.
-fn record_comparison(name: &str, default_rows: &[MeasurementRow], run: &RangesRun) {
+/// Record all three modes' rows for one scenario and judge them.
+///
+/// Everything is recorded before anything is asserted, so a point that fails
+/// its convergence check still leaves an honest row on disk rather than none.
+fn record_comparison(name: &str, default_rows: &[MeasurementRow], runs: &[RangesRun]) {
     let mut rows = default_rows.to_vec();
-    rows.extend(run.rows.iter().cloned());
+    for run in runs {
+        rows.extend(run.rows.iter().cloned());
+    }
     record(name, &rows);
-    let scenario = run
-        .rows
-        .first()
-        .map(|row| row.scenario.clone())
-        .unwrap_or_else(|| name.to_string());
-    record_sessions(name, &scenario, run);
-    report_session_cost(name, run);
-    assert_converged(&run.rows);
-    assert_payload_identity(default_rows, &run.rows);
+    record_payload(name, &rows);
+    for run in runs {
+        let scenario = run
+            .rows
+            .first()
+            .map(|row| row.scenario.clone())
+            .unwrap_or_else(|| name.to_string());
+        let mode = super::ranges::mode_for(run.engine);
+        record_sessions(&format!("{name}_{mode}"), &scenario, run);
+        report_session_cost(&format!("{name} [{mode}]"), run);
+        flag_payload_divergence(name, default_rows, &run.rows);
+    }
+    if let [first, rest @ ..] = runs {
+        for run in rest {
+            flag_payload_divergence(name, &first.rows, &run.rows);
+        }
+    }
+    for run in runs {
+        assert_converged(&run.rows);
+        assert_payload_identity(default_rows, &run.rows);
+    }
 }
 
 macro_rules! cold_start_point {
     ($name:ident, $file:literal, $scenario:literal, $docs:literal) => {
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        #[ignore = "benchmark: builds four iroh nodes and waits for real convergence"]
+        #[ignore = "benchmark: builds six iroh nodes and waits for real convergence"]
         async fn $name() {
             let default_rows = baseline::cold_start($docs).await;
-            let run = ranges_cold_start($docs, $scenario).await;
-            record_comparison($file, &default_rows, &run);
+            let mut runs = Vec::new();
+            for engine in ENGINES {
+                runs.push(ranges_cold_start($docs, $scenario, engine).await);
+            }
+            record_comparison($file, &default_rows, &runs);
         }
     };
 }
@@ -160,12 +197,15 @@ macro_rules! cold_start_point {
 macro_rules! sweep_point {
     ($name:ident, $file:literal, $docs:literal, $diverged:literal) => {
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        #[ignore = "benchmark: builds four iroh nodes and waits for real convergence"]
+        #[ignore = "benchmark: builds six iroh nodes and waits for real convergence"]
         async fn $name() {
             let scenario = format!("diff{}_docs{}", $diverged, $docs);
             let default_rows = baseline::tiny_diff($docs, $diverged).await;
-            let run = ranges_tiny_diff($docs, $diverged, &scenario).await;
-            record_comparison($file, &default_rows, &run);
+            let mut runs = Vec::new();
+            for engine in ENGINES {
+                runs.push(ranges_tiny_diff($docs, $diverged, &scenario, engine).await);
+            }
+            record_comparison($file, &default_rows, &runs);
         }
     };
 }
@@ -175,13 +215,13 @@ macro_rules! sweep_point {
 // reconciliation is per-collection by construction, which is exactly the
 // distinction the split exists to expose.
 cold_start_point!(
-    ranges_m1_per_doc,
+    matrix_m1_per_doc,
     "m1_perdoc_docs10",
     "coldstart_docs10",
     10
 );
 cold_start_point!(
-    ranges_m2_per_collection,
+    matrix_m2_per_collection,
     "m2_collection_docs10",
     "coldstart_docs10",
     10
@@ -189,30 +229,30 @@ cold_start_point!(
 
 // M5: collection-size sweep with exactly one changed document. The whole point
 // of set reconciliation is that this cost should not grow with `n`.
-sweep_point!(ranges_m5_docs50, "m5_onedocchanged_docs50", 50, 1);
-sweep_point!(ranges_m5_docs100, "m5_onedocchanged_docs100", 100, 1);
-sweep_point!(ranges_m5_docs200, "m5_onedocchanged_docs200", 200, 1);
-sweep_point!(ranges_m5_docs500, "m5_onedocchanged_docs500", 500, 1);
-sweep_point!(ranges_m5_docs1000, "m5_onedocchanged_docs1000", 1000, 1);
+sweep_point!(matrix_m5_docs50, "m5_onedocchanged_docs50", 50, 1);
+sweep_point!(matrix_m5_docs100, "m5_onedocchanged_docs100", 100, 1);
+sweep_point!(matrix_m5_docs200, "m5_onedocchanged_docs200", 200, 1);
+sweep_point!(matrix_m5_docs500, "m5_onedocchanged_docs500", 500, 1);
+sweep_point!(matrix_m5_docs1000, "m5_onedocchanged_docs1000", 1000, 1);
 
 // Difference sweep at a fixed collection size.
-sweep_point!(ranges_diffsweep_diff1, "diffsweep_docs500_diff1", 500, 1);
-sweep_point!(ranges_diffsweep_diff10, "diffsweep_docs500_diff10", 500, 10);
-sweep_point!(ranges_diffsweep_diff50, "diffsweep_docs500_diff50", 500, 50);
+sweep_point!(matrix_diffsweep_diff1, "diffsweep_docs500_diff1", 500, 1);
+sweep_point!(matrix_diffsweep_diff10, "diffsweep_docs500_diff10", 500, 10);
+sweep_point!(matrix_diffsweep_diff50, "diffsweep_docs500_diff50", 500, 50);
 sweep_point!(
-    ranges_diffsweep_diff100,
+    matrix_diffsweep_diff100,
     "diffsweep_docs500_diff100",
     500,
     100
 );
 sweep_point!(
-    ranges_diffsweep_diff250,
+    matrix_diffsweep_diff250,
     "diffsweep_docs500_diff250",
     500,
     250
 );
 sweep_point!(
-    ranges_diffsweep_diff500,
+    matrix_diffsweep_diff500,
     "diffsweep_docs500_diff500",
     500,
     500
@@ -221,10 +261,19 @@ sweep_point!(
 /// The agreed-set session cost: nothing differs, so this is what a session
 /// costs to prove there is nothing to do. Naming follows the v2 convention,
 /// `diff{d}_docs{n}` with `d = 0`.
+///
+/// **This is the row the whole RIBLT comparison turns on**, and it is the one
+/// regime a live node is in almost every time it reconciles. The range engine
+/// answers agreement with one fingerprint and one all-skip; a rateless decoder
+/// cannot know the sets agree until it has pulled a batch and decoded it, so it
+/// always pays the opening batch. Chart 16 cannot be drawn without it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "benchmark: builds four iroh nodes and waits for real convergence"]
-async fn ranges_zero_diff() {
+#[ignore = "benchmark: builds six iroh nodes and waits for real convergence"]
+async fn matrix_zero_diff() {
     let default_rows = baseline::tiny_diff(500, 0).await;
-    let run = ranges_tiny_diff(500, 0, "diff0_docs500").await;
-    record_comparison("diffsweep_docs500_diff0", &default_rows, &run);
+    let mut runs = Vec::new();
+    for engine in ENGINES {
+        runs.push(ranges_tiny_diff(500, 0, "diff0_docs500", engine).await);
+    }
+    record_comparison("diffsweep_docs500_diff0", &default_rows, &runs);
 }

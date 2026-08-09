@@ -1,4 +1,11 @@
-//! The `mode=ranges` driver: convergence through real RBSR sessions.
+//! The reconciliation driver: convergence through real sessions, on whichever
+//! engine the point names.
+//!
+//! One driver serves both engines because the comparison is only worth
+//! something if everything outside the engine is the same code: the same
+//! session loop, the same settle protocol, the same counters, the same
+//! convergence rule. The engine travels in the opening frame, so selecting it
+//! changes what the two ends run and nothing else here.
 //!
 //! A session discovers head CIDs and hands them to the same DAG fetch path the
 //! default mode's pull ends in, so the two modes differ in *discovery* and in
@@ -31,6 +38,17 @@ const MAX_SESSIONS: u32 = 24;
 
 /// Overall budget for one scenario's convergence.
 const CONVERGENCE_TIMEOUT: Duration = Duration::from_secs(900);
+
+/// The CSV `mode` a run on `engine` records under.
+///
+/// `ranges` rather than `rbsr` because that is the name every phase 0 and
+/// phase 3 row already carries, and the overlay pipeline keys off it.
+pub(crate) fn mode_for(engine: EngineKind) -> &'static str {
+    match engine {
+        EngineKind::Rbsr => "ranges",
+        EngineKind::Riblt => "riblt",
+    }
+}
 
 /// What the sessions themselves reported, as distinct from what the transport
 /// counters saw.
@@ -80,6 +98,8 @@ impl AlpnCounts {
 /// stopped if it stopped badly.
 pub(crate) struct RangesRun {
     pub rows: Vec<MeasurementRow>,
+    /// The engine every session in this run was driven on.
+    pub engine: EngineKind,
     pub cost: SessionCost,
     /// The initiator's reconciliation ALPN traffic as the transport counted it.
     pub initiator_wire: AlpnCounts,
@@ -93,7 +113,12 @@ pub(crate) struct RangesRun {
 
 impl NodePair {
     /// Drive reconciliation sessions from the reader until the pair agrees.
-    pub(crate) async fn measure_reconcile(&self, scenario: &str, doc_ids: &[String]) -> RangesRun {
+    pub(crate) async fn measure_reconcile(
+        &self,
+        scenario: &str,
+        doc_ids: &[String],
+        engine: EngineKind,
+    ) -> RangesRun {
         let peer_id = self.writer_peer_id().await;
         let reconciler = self
             .reader
@@ -109,7 +134,7 @@ impl NodePair {
         while cost.sessions < MAX_SESSIONS && started.elapsed() < CONVERGENCE_TIMEOUT {
             cost.sessions += 1;
             let outcome = match reconciler
-                .reconcile_collection(&peer_id, COLLECTION, EngineKind::Rbsr)
+                .reconcile_collection(&peer_id, COLLECTION, engine)
                 .await
             {
                 Ok(outcome) => outcome,
@@ -153,7 +178,7 @@ impl NodePair {
         let rows = self
             .rows(&RunOutcome {
                 scenario: scenario.to_string(),
-                mode: "ranges",
+                mode: mode_for(engine),
                 wall_ms,
                 rounds: cost.rounds,
                 converged,
@@ -163,6 +188,7 @@ impl NodePair {
 
         RangesRun {
             rows,
+            engine,
             cost,
             initiator_wire: AlpnCounts::reconcile(&self.reader_snapshot()),
             responder_wire: AlpnCounts::reconcile(&self.writer_snapshot()),

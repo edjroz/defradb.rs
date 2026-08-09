@@ -236,6 +236,8 @@ impl NodePair {
                 rounds: outcome.rounds,
                 converged: outcome.converged,
                 state_match: outcome.state_match,
+                payload_bytes_sent: snapshot.payload_bytes_sent(),
+                payload_bytes_recv: snapshot.payload_bytes_recv(),
             });
         }
         rows

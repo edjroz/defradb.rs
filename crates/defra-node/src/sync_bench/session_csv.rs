@@ -28,8 +28,9 @@ pub(super) fn render(scenario: &str, run: &RangesRun) -> String {
     out.push('\n');
     let _ = writeln!(
         out,
-        "{},ranges,{},{},{},{},{},{},{},{},{},{}",
+        "{},{},{},{},{},{},{},{},{},{},{},{}",
         scenario,
+        super::ranges::mode_for(run.engine),
         cost.sessions,
         cost.rounds,
         cost.bytes_sent,
@@ -60,6 +61,7 @@ mod tests {
     fn run() -> RangesRun {
         RangesRun {
             rows: Vec::new(),
+            engine: p2p::reconcile::EngineKind::Rbsr,
             cost: SessionCost {
                 sessions: 2,
                 rounds: 4,
@@ -109,6 +111,31 @@ mod tests {
         let fields: Vec<&str> = rendered.lines().nth(1).unwrap().split(',').collect();
         assert_eq!(fields.len(), HEADER.split(',').count());
         assert_eq!(fields[11], "round cap exceeded; max 32");
+    }
+
+    /// The sidecar names its own engine, so the three modes' sidecars can be
+    /// read side by side without inferring the engine from the filename.
+    #[test]
+    fn the_engine_names_the_mode_column() {
+        let mut riblt = run();
+        riblt.engine = p2p::reconcile::EngineKind::Riblt;
+        let fields: Vec<String> = render("diff500_docs500", &riblt)
+            .lines()
+            .nth(1)
+            .unwrap()
+            .split(',')
+            .map(str::to_string)
+            .collect();
+        assert_eq!(fields[1], "riblt");
+        assert_eq!(
+            render("diff500_docs500", &run())
+                .lines()
+                .nth(1)
+                .unwrap()
+                .split(',')
+                .nth(1),
+            Some("ranges")
+        );
     }
 
     #[test]

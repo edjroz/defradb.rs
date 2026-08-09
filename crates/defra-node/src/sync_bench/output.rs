@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 
 use super::csv::{self, MeasurementRow};
+use super::payload_csv;
 use super::ranges::RangesRun;
 use super::session_csv;
 
@@ -43,10 +44,57 @@ pub(super) fn assert_converged(rows: &[MeasurementRow]) {
     }
 }
 
+/// Record what every mode put on the wire as payload, beside what it converged
+/// on.
+pub(super) fn record_payload(name: &str, rows: &[MeasurementRow]) {
+    let path = out_dir().join(format!("{name}_payload.csv"));
+    payload_csv::write(&path, rows).expect("write payload csv");
+    println!("{}\n{}", path.display(), payload_csv::render(rows));
+}
+
+/// Compare the wire payload of two modes and say so loudly when they differ.
+///
+/// This is the check the final-state comparison below cannot make. Two modes
+/// that converge on the same blockstore have proved they ended in the same
+/// place; only the counters can say whether they moved the same bytes to get
+/// there. A difference is a finding about a mode, not a broken run, so the row
+/// is flagged and kept rather than thrown away — and the numbers are in the
+/// payload sidecar either way.
+pub(super) fn flag_payload_divergence(
+    scenario: &str,
+    left: &[MeasurementRow],
+    right: &[MeasurementRow],
+) {
+    if payload_csv::payload_matches(left, right) {
+        return;
+    }
+    let name = |rows: &[MeasurementRow]| {
+        rows.first()
+            .map(|row| row.mode.clone())
+            .unwrap_or_else(|| "?".to_string())
+    };
+    println!(
+        "  FLAG {scenario}: wire payload differs between mode={} and mode={}",
+        name(left),
+        name(right)
+    );
+    for rows in [left, right] {
+        for row in rows {
+            println!(
+                "    mode={} node={} payload sent/recv {}/{} for {} blocks",
+                row.mode, row.node_id, row.payload_bytes_sent, row.payload_bytes_recv, row.blocks
+            );
+        }
+    }
+}
+
 /// Reconciliation may only change what it costs to *discover* a difference. The
 /// blocks that end up on each node, and their total size, must be exactly what
 /// the default path produced for the same scenario — a ranges row that moved
 /// different payload is measuring a different thing, not a cheaper one.
+///
+/// This is a **final-state** comparison and is nearly tautological once both
+/// modes converge; [`flag_payload_divergence`] is the wire-level counterpart.
 pub(super) fn assert_payload_identity(
     default_rows: &[MeasurementRow],
     ranges_rows: &[MeasurementRow],
