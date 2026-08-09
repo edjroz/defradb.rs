@@ -10,8 +10,14 @@
 //! the engines decide between themselves, and the set sizes needed to approach
 //! it are far beyond what a two-node harness can seed in reasonable time.
 //!
+//! Nothing here establishes a *minimum* failing difference. Whether a given
+//! `(n, d)` converges depends on how the difference happens to land in the
+//! keyspace, so the predicate is not monotone in `d` and a search over it finds
+//! a crossing, not the first one. Several seeds are probed so the spread between
+//! crossings is visible rather than assumed away.
+//!
 //! ```text
-//! cargo test -p p2p --features iroh-transport --lib \
+//! cargo test --release -p p2p --features iroh-transport --lib \
 //!   reconcile::engine::rbsr::round_cap_tests -- --ignored --nocapture
 //! ```
 
@@ -21,13 +27,21 @@ use crate::reconcile::session::MAX_ROUNDS;
 
 const SEED: u64 = 0x5EED_C0FFEE;
 
+/// Seeds the crossing search repeats over. One seed would report a single draw
+/// as if it were the boundary.
+const SEEDS: [u64; 3] = [0x5EED_C0FFEE, 0x1234_5678, 0xDEAD_BEEF];
+
 /// Rounds and bytes for one `(n, d)` point, or the reason it failed.
-fn probe(n: usize, d: usize) -> Result<(usize, usize), String> {
-    let (local, remote) = simulate::diverged(n, d, SEED);
+fn probe_seeded(n: usize, d: usize, seed: u64) -> Result<(usize, usize), String> {
+    let (local, remote) = simulate::diverged(n, d, seed);
     match simulate::run(&simulate::source(local), &simulate::source(remote)) {
         Ok(outcome) => Ok((outcome.rounds, outcome.bytes)),
         Err(error) => Err(error.to_string()),
     }
+}
+
+fn probe(n: usize, d: usize) -> Result<(usize, usize), String> {
+    probe_seeded(n, d, SEED)
 }
 
 /// The grid, printed as CSV so a report can quote it without re-deriving it.
@@ -51,40 +65,46 @@ fn map_the_round_cap_boundary() {
     println!("# deepest session observed: {worst} rounds against a cap of {MAX_ROUNDS}");
 }
 
-/// The cliff is real; this finds which `(n, d)` first falls off it.
+/// The cliff is real; this finds a difference size that falls off it.
 ///
 /// It is not tree depth that gets there. Refinement is logarithmic with a
 /// branching factor of 16, and the grid above shows a wholly disjoint hundred
-/// thousand items converging in four rounds. What reaches the cap is the
-/// message caps: a response that would exceed
+/// thousand items converging in four rounds. The **hypothesis** is that what
+/// reaches the cap is the message caps: a response that would exceed
 /// [`MAX_RANGES_PER_MESSAGE`](super::caps::MAX_RANGES_PER_MESSAGE) or
 /// [`MAX_LISTED_ID_BYTES`](super::caps::MAX_LISTED_ID_BYTES) defers the rest of
 /// its refinement to a later round, and past some difference size there is more
-/// to defer than 32 rounds can carry.
+/// to defer than 32 rounds can carry. That is consistent with what is printed
+/// here and with how the caps are documented to behave, but nothing below
+/// isolates the deferral itself, which would mean instrumenting the responder.
 ///
-/// Bisection rather than a fixed grid, because the boundary is what the report
-/// has to state and rounding it to the nearest decade would overstate the safe
-/// envelope.
+/// **What the search returns is a crossing, not a minimum.** Convergence is not
+/// monotone in `d` — it depends on where the difference lands in the keyspace —
+/// so a bisection is only entitled to say "this `d` failed and this smaller one
+/// did not". Repeating it over several seeds shows how far apart two such
+/// crossings can be, which is the only honest way to read the spread.
 #[test]
 #[ignore = "benchmark: reconciles up to a million items, repeatedly"]
-fn the_round_cap_boundary_is_where_the_message_caps_put_it() {
-    println!("n,smallest failing d,largest converging d");
+fn a_round_cap_crossing_exists_above_a_quarter_million_items() {
+    println!("n,seed,failingD,convergingD");
     for n in [100_000, 250_000, 500_000, 1_000_000] {
-        if probe(n, n).is_ok() {
-            println!("{n},,{n}");
-            continue;
-        }
-
-        let (mut converging, mut failing) = (1, n);
-        while failing - converging > 1 {
-            let midpoint = converging + (failing - converging) / 2;
-            if probe(n, midpoint).is_ok() {
-                converging = midpoint;
-            } else {
-                failing = midpoint;
+        for seed in SEEDS {
+            if probe_seeded(n, n, seed).is_ok() {
+                println!("{n},{seed:#x},,{n}");
+                continue;
             }
+
+            let (mut converging, mut failing) = (1, n);
+            while failing - converging > 1 {
+                let midpoint = converging + (failing - converging) / 2;
+                if probe_seeded(n, midpoint, seed).is_ok() {
+                    converging = midpoint;
+                } else {
+                    failing = midpoint;
+                }
+            }
+            println!("{n},{seed:#x},{failing},{converging}");
         }
-        println!("{n},{failing},{converging}");
     }
 }
 
