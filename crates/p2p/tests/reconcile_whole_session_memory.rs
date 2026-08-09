@@ -18,6 +18,12 @@
 //! what was asked for; allocator metadata, size-class rounding and fragmentation
 //! are outside it, so every figure here is a floor on resident memory.
 //!
+//! The counter is process-wide, so two measurements taken at once would each
+//! read the other's allocations as their own. [`MEASURING`] makes a measurement
+//! exclusive rather than leaving that to `--test-threads=1`: the failure a flag
+//! prevents is silent, and one of these figures being wrong is indistinguishable
+//! from the engine holding more.
+//!
 //! ```text
 //! cargo test --release -p p2p --features iroh-transport \
 //!   --test reconcile_whole_session_memory -- --ignored --nocapture
@@ -25,6 +31,7 @@
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
 use p2p::reconcile::engine::rbsr::RbsrEngine;
 use p2p::reconcile::engine::riblt::RibltEngine;
@@ -80,9 +87,19 @@ fn live() -> usize {
     LIVE.load(Ordering::Relaxed)
 }
 
+/// Held for the whole of one measurement, so only one is ever in flight.
+static MEASURING: Mutex<()> = Mutex::new(());
+
+fn exclusively() -> MutexGuard<'static, ()> {
+    MEASURING
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Heap held by a live range-engine session that has produced its opening
 /// message.
 fn rbsr_session(n: usize, initiator: bool) -> usize {
+    let _exclusive = exclusively();
     let before = live();
     let local = source(n);
     let mut session = Session::new(if initiator {
@@ -99,6 +116,7 @@ fn rbsr_session(n: usize, initiator: bool) -> usize {
 /// Heap held by a live rateless session that has produced its opening message,
 /// with the caller's snapshot still alive as `initiate` and `serve` leave it.
 fn riblt_session(n: usize, decoder: bool) -> usize {
+    let _exclusive = exclusively();
     let before = live();
     let local = source(n);
     let mut session = Session::new(if decoder {
@@ -111,6 +129,39 @@ fn riblt_session(n: usize, decoder: bool) -> usize {
     drop(session);
     drop(local);
     held
+}
+
+/// Two measurements taken at once must each report their own allocations.
+///
+/// Without exclusion they do not: the counter is process-wide, so the larger
+/// run's items land inside the smaller run's window and the smaller run's
+/// deallocations land inside the larger's — which reads as an engine that holds
+/// an order of magnitude more per item, or underflows outright. That is how
+/// this file's first campaign run failed, and a wrong number is a worse failure
+/// than a crash because it is publishable.
+#[test]
+fn measurements_do_not_see_each_others_allocations() {
+    const DRAWS: usize = 20;
+
+    let alone = rbsr_session(1_000, true);
+    let contended = std::thread::scope(|scope| {
+        let noisy = scope.spawn(|| {
+            for _ in 0..DRAWS {
+                riblt_session(200_000, true);
+            }
+        });
+        let mine: Vec<usize> = (0..DRAWS).map(|_| rbsr_session(1_000, true)).collect();
+        noisy.join().expect("the other measurements finish");
+        mine
+    });
+
+    for (draw, held) in contended.iter().enumerate() {
+        assert!(
+            held.abs_diff(alone) * 100 <= alone,
+            "draw {draw} of {DRAWS} read {held} bytes against {alone} taken alone — \
+             a concurrent measurement's allocations landed inside this one's window"
+        );
+    }
 }
 
 /// Both engines, both sides, at matched set sizes.

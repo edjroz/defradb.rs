@@ -17,7 +17,7 @@
 
 use crate::reconcile::codec;
 use crate::reconcile::engine::rbsr::RbsrEngine;
-use crate::reconcile::engine::riblt::RibltEngine;
+use crate::reconcile::engine::riblt::{RibltEngine, RibltMessage};
 use crate::reconcile::engine::Progress;
 use crate::reconcile::error::Result;
 use crate::reconcile::session::Session;
@@ -42,6 +42,10 @@ pub(crate) struct Measurement {
     pub bytes: usize,
     /// Peer messages the initiating side consumed.
     pub rounds: usize,
+    /// Coded cells the initiating side consumed. Zero for the range engine,
+    /// which codes nothing — the tail this study reports is a property of the
+    /// rateless stream and the range engine has no analogue of it.
+    pub symbols: usize,
     /// Identities the initiating side must pull.
     pub need: usize,
     /// Identities the initiating side holds that the peer does not.
@@ -117,6 +121,7 @@ pub(crate) fn rbsr(local: &MemorySource, remote: &MemorySource) -> Result<Measur
     Ok(Measurement {
         bytes,
         rounds: initiator.rounds(),
+        symbols: 0,
         need: initiator.diff().need().len(),
         have: initiator.diff().have().len(),
     })
@@ -127,6 +132,7 @@ pub(crate) fn riblt(local: &MemorySource, remote: &MemorySource) -> Result<Measu
     let mut decoder = Session::new(RibltEngine::decoder(local)?);
     let mut encoder = Session::new(RibltEngine::encoder(remote)?);
     let mut bytes = 0usize;
+    let mut symbols = 0usize;
 
     let mut request = decoder.next_outbound()?.expect("the decoder opens");
     loop {
@@ -136,6 +142,7 @@ pub(crate) fn riblt(local: &MemorySource, remote: &MemorySource) -> Result<Measu
             .next_outbound()?
             .expect("the encoder always answers a request");
         bytes += codec::encode(&batch)?.len();
+        symbols += cells(&batch);
         if decoder.ingest(batch)? == Progress::Converged {
             break;
         }
@@ -147,7 +154,16 @@ pub(crate) fn riblt(local: &MemorySource, remote: &MemorySource) -> Result<Measu
     Ok(Measurement {
         bytes,
         rounds: decoder.rounds(),
+        symbols,
         need: decoder.diff().need().len(),
         have: decoder.diff().have().len(),
     })
+}
+
+/// Coded cells in one encoder answer. A request carries none.
+fn cells(message: &RibltMessage) -> usize {
+    match message {
+        RibltMessage::Symbols { symbols, .. } => symbols.len(),
+        RibltMessage::Request { .. } => 0,
+    }
 }

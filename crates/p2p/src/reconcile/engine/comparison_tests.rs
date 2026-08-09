@@ -52,10 +52,10 @@ fn row(n: usize, d: usize, seed: u64, point: &Point) {
     for (engine, result) in [("ranges", &point.rbsr), ("riblt", &point.riblt)] {
         match result {
             Ok(m) => println!(
-                "{n},{d},{seed:#x},{engine},{},{},{},{},converged",
-                m.bytes, m.rounds, m.need, m.have
+                "{n},{d},{seed:#x},{engine},{},{},{},{},{},converged",
+                m.bytes, m.rounds, m.symbols, m.need, m.have
             ),
-            Err(error) => println!("{n},{d},{seed:#x},{engine},,,,,{error}"),
+            Err(error) => println!("{n},{d},{seed:#x},{engine},,,,,,{error}"),
         }
     }
 }
@@ -99,6 +99,192 @@ fn identities_are_deterministic_and_exactly_the_cid_width() {
     assert_eq!(id(u64::MAX).as_bytes().len(), IDENTITY_WIDTH);
 }
 
+/// The tail table's subject is the coded cells a decoder consumes, so the
+/// driver's count of them is pinned against the one figure that is arithmetic
+/// rather than a draw: agreement always costs exactly the opening batch.
+#[test]
+fn the_driver_counts_the_cells_the_decoder_consumed() {
+    use super::riblt::caps::INITIAL_SYMBOL_BATCH;
+
+    let (local, remote) = diverged(2 * LISTING_BOUNDARY, 0, SEEDS[0]);
+    let agreed = riblt(&local, &remote).expect("converges");
+    assert_eq!(
+        agreed.symbols, INITIAL_SYMBOL_BATCH,
+        "a decoder cannot know the sets agree without pulling and decoding a batch"
+    );
+
+    let (local, remote) = diverged(2 * LISTING_BOUNDARY, 100, SEEDS[0]);
+    let differing = riblt(&local, &remote).expect("converges");
+    assert!(
+        differing.symbols > agreed.symbols,
+        "a difference of a hundred cost {} cells, no more than agreement's {}",
+        differing.symbols,
+        agreed.symbols
+    );
+
+    let ranges = rbsr(&local, &remote).expect("converges");
+    assert_eq!(
+        ranges.symbols, 0,
+        "the range engine codes nothing, and a zero here is that and not a miscount"
+    );
+}
+
+/// Seeds a tail claim is drawn over. Thirty is what a nearest-rank p95 can
+/// resolve and a p99 cannot, which is the point: the p99 column below is a
+/// maximum wearing a percentile's name and says so.
+const TAIL_SEEDS: usize = 30;
+
+/// The seeds themselves, spread across the identity space rather than
+/// consecutive, because a seed both scatters the difference and moves the whole
+/// identity space.
+fn tail_seed(index: usize) -> u64 {
+    (index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x5EED_C0FFEE
+}
+
+/// The value at a percentile of a sorted sample, by nearest rank.
+fn percentile(sorted: &[usize], fraction: f64) -> usize {
+    let rank = ((sorted.len() as f64 * fraction).ceil() as usize).clamp(1, sorted.len());
+    sorted[rank - 1]
+}
+
+/// Whether `samples` draws can tell the given percentile from the maximum.
+fn resolves(samples: usize, fraction: f64) -> bool {
+    ((samples as f64 * fraction).ceil() as usize) < samples
+}
+
+#[test]
+fn a_percentile_past_what_the_sample_resolves_is_the_maximum() {
+    let sorted: Vec<usize> = (1..=20).collect();
+    assert_eq!(percentile(&sorted, 0.50), 10);
+    assert_eq!(percentile(&sorted, 0.95), 19);
+    assert_eq!(percentile(&sorted, 0.99), 20);
+    assert!(resolves(20, 0.95));
+    assert!(
+        !resolves(20, 0.99),
+        "a twentieth of a sample is its maximum"
+    );
+    assert!(resolves(TAIL_SEEDS, 0.95));
+    assert!(!resolves(TAIL_SEEDS, 0.99));
+}
+
+/// The contrast chart 19 and the tail requirement both rest on: the range
+/// engine's round count is a property of the *shape* of the difference, and the
+/// rateless engine's is a draw.
+///
+/// Measured rather than assumed, because "RBSR is deterministic" is a claim
+/// about this implementation's round schedule, not a theorem — and it is the
+/// baseline every RIBLT tail figure is reported against.
+#[test]
+fn the_range_engine_spends_the_same_rounds_on_every_draw() {
+    const N: usize = 2 * LISTING_BOUNDARY;
+    const D: usize = 64;
+
+    let mut ranges = Vec::new();
+    let mut rateless = Vec::new();
+    for index in 0..8 {
+        let point = measure(N, D, tail_seed(index));
+        ranges.push(point.rbsr.expect("the range engine converges").rounds);
+        rateless.push(point.riblt.expect("the rateless engine converges").rounds);
+    }
+
+    assert_eq!(
+        ranges
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        1,
+        "the range engine spent {ranges:?} rounds across eight draws of the same (n, d)"
+    );
+    assert!(
+        !rateless.is_empty(),
+        "the rateless draws are the thing the tail table reports"
+    );
+}
+
+/// What the rateless engine costs on a bad draw, at node scale.
+///
+/// R1 measured the coding tail on a bare decoder fed one symbol at a time. This
+/// is the same question asked of a whole session at set sizes above the listing
+/// boundary, which is what a node pays: the batches overshoot, so the session
+/// figure is coarser than the coding figure and is the one a capacity decision
+/// reads.
+///
+/// **Every draw is printed, not only its percentiles.** A percentile computed
+/// from thirty draws cannot be re-cut later, and the p99 column here is the
+/// maximum of thirty — `p99Resolves` is `false` on every row and says so.
+///
+/// The range engine's draws are printed beside them for the contrast: its cost
+/// varies with where the difference falls in the keyspace, but its round count
+/// does not vary at all, which is the property the latency study turns on.
+#[test]
+#[ignore = "benchmark: thirty draws per point over sets of up to a hundred thousand items"]
+fn the_tail_of_a_rateless_session() {
+    println!("# raw draws");
+    println!("n,d,seed,engine,bytes,rounds,symbols,need,have,outcome");
+    let points = [
+        (10 * LISTING_BOUNDARY, 1usize),
+        (10 * LISTING_BOUNDARY, 10),
+        (10 * LISTING_BOUNDARY, 100),
+        (100_000, 1),
+        (100_000, 10),
+        (100_000, 100),
+        (100_000, 1_000),
+    ];
+
+    let mut summaries = Vec::new();
+    for (n, d) in points {
+        let mut draws = Vec::new();
+        for index in 0..TAIL_SEEDS {
+            let seed = tail_seed(index);
+            let point = measure(n, d, seed);
+            row(n, d, seed, &point);
+            draws.push(point);
+        }
+        summaries.push((n, d, draws));
+    }
+
+    println!("# summary");
+    println!(
+        "n,d,samples,engine,quantity,p50,p95,p99,max,p50PerDiffItem,p99PerDiffItem,p99Resolves"
+    );
+    for (n, d, draws) in &summaries {
+        for (engine, take) in [("riblt", true), ("ranges", false)] {
+            for (quantity, of) in [
+                (
+                    "symbols",
+                    (|m: &Measurement| m.symbols) as fn(&Measurement) -> usize,
+                ),
+                ("bytes", |m| m.bytes),
+                ("rounds", |m| m.rounds),
+            ] {
+                let mut sample: Vec<usize> = draws
+                    .iter()
+                    .filter_map(|point| {
+                        let result = if take { &point.riblt } else { &point.rbsr };
+                        result.as_ref().ok().map(of)
+                    })
+                    .collect();
+                if sample.is_empty() {
+                    continue;
+                }
+                sample.sort_unstable();
+                let per = |value: usize| value as f64 / *d as f64;
+                println!(
+                    "{n},{d},{},{engine},{quantity},{},{},{},{},{:.3},{:.3},{}",
+                    sample.len(),
+                    percentile(&sample, 0.50),
+                    percentile(&sample, 0.95),
+                    percentile(&sample, 0.99),
+                    sample[sample.len() - 1],
+                    per(percentile(&sample, 0.50)),
+                    per(percentile(&sample, 0.99)),
+                    resolves(sample.len(), 0.99),
+                );
+            }
+        }
+    }
+}
+
 /// Bytes against set size, at the difference sizes a live node actually sees.
 ///
 /// `d = 0` is in the sweep and is not a formality: it is the regime a node that
@@ -109,7 +295,7 @@ fn identities_are_deterministic_and_exactly_the_cid_width() {
 #[ignore = "benchmark: reconciles sets of up to a hundred thousand items"]
 fn bytes_against_set_size_above_the_listing_boundary() {
     println!("# listing boundary at n = {LISTING_BOUNDARY}");
-    println!("n,d,seed,engine,bytes,rounds,need,have,outcome");
+    println!("n,d,seed,engine,bytes,rounds,symbols,need,have,outcome");
     for n in [
         LISTING_BOUNDARY,
         2 * LISTING_BOUNDARY,
@@ -134,7 +320,7 @@ fn bytes_against_set_size_above_the_listing_boundary() {
 #[test]
 #[ignore = "benchmark: reconciles a hundred thousand items, repeatedly"]
 fn bytes_against_difference_size_above_the_listing_boundary() {
-    println!("n,d,seed,engine,bytes,rounds,need,have,outcome");
+    println!("n,d,seed,engine,bytes,rounds,symbols,need,have,outcome");
     for n in [10 * LISTING_BOUNDARY, 100_000] {
         let mut d = 0;
         loop {
