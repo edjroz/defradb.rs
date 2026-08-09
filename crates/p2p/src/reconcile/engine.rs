@@ -101,6 +101,7 @@ pub trait Engine {
 }
 
 pub mod rbsr;
+pub mod riblt;
 
 #[cfg(test)]
 #[path = "engine_tests.rs"]

@@ -80,6 +80,17 @@ pub enum ReconcileError {
     #[error("reconciliation codec error: {0}")]
     Codec(String),
 
+    /// A peer's coded symbol was not the width this session reconciles at.
+    /// XOR is only a group operation over one fixed width, so a mismatch is
+    /// refused rather than reconciled against a prefix of itself.
+    #[error("reconcile symbol width {found} does not match this session's {expected}")]
+    SymbolWidthMismatch {
+        /// Width the peer's symbol carried.
+        found: usize,
+        /// Width this session reconciles at.
+        expected: usize,
+    },
+
     /// The stream carrying the session failed, or the peer closed it before the
     /// session finished. A session that loses its transport ends here rather
     /// than waiting on a peer that will never answer.
