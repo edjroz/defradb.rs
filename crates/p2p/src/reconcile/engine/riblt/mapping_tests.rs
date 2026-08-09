@@ -65,16 +65,26 @@ fn every_symbol_starts_at_index_zero() {
     }
 }
 
-/// The indices a symbol maps to must ascend, or the encoder's priority queue
-/// would revisit a coded symbol it has already emitted.
+/// The indices a symbol maps to must ascend *strictly*, or a symbol would be
+/// folded into the same coded symbol twice — and since XOR is its own inverse,
+/// the second fold would silently cancel the first. `u64::MAX` is the seed that
+/// makes the reference compute a step of exactly zero.
+///
+/// Saturation at `u64::MAX` is the one place the sequence stops rising. A
+/// session compares the index against a coded-symbol count capped many orders of
+/// magnitude below that, so it is only reachable by walking the sequence far
+/// past any use.
 #[test]
-fn indices_ascend() {
+fn indices_ascend_strictly() {
     for seed in [1u64, 7, 0x5555_5555_5555_5555, u64::MAX] {
         let mut mapping = RandomMapping::new(seed);
         let mut previous = mapping.index();
-        for _ in 0..1000 {
+        while previous < u64::MAX {
             let next = mapping.next_index();
-            assert!(next >= previous, "seed {seed}: {next} < {previous}");
+            assert!(
+                next > previous,
+                "seed {seed}: {next} does not exceed {previous}"
+            );
             previous = next;
         }
     }

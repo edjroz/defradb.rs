@@ -40,15 +40,25 @@ impl RandomMapping {
 
     /// Advances to the next index of the sequence.
     ///
-    /// The reference lets its `int` accumulator wrap; here the addition
-    /// saturates instead. Both are unreachable in a session — the index is
-    /// compared against a coded-symbol count capped far below `u64::MAX` — but
-    /// saturating keeps the sequence monotonic for any input a fuzzer invents.
+    /// Two departures from the reference, neither of which changes an index it
+    /// can produce, and both of which remove a way to be silently wrong:
+    ///
+    /// - The addition saturates where the reference lets its `int` wrap. The
+    ///   index is compared against a coded-symbol count capped far below
+    ///   `u64::MAX`, so this is unreachable in a session; it keeps the sequence
+    ///   monotonic for anything a fuzzer invents.
+    /// - The step is at least one. A `u64` draw within about `2^11` of the top
+    ///   rounds to `2^64` in double precision, making the computed step exactly
+    ///   zero — roughly a `2^-53` event per draw. The reference would then map a
+    ///   symbol to the same coded symbol twice in a row, and because the group
+    ///   operation is its own inverse, the second application would silently
+    ///   cancel the first. Enforcing a strictly increasing sequence costs
+    ///   nothing and cannot alter any step the reference computes as non-zero.
     pub(super) fn next_index(&mut self) -> u64 {
         self.prng = self.prng.wrapping_mul(MULTIPLIER);
         let jump = (self.last_index as f64 + 1.5)
             * ((1u64 << 32) as f64 / (self.prng as f64 + 1.0).sqrt() - 1.0);
-        self.last_index = self.last_index.saturating_add(jump.ceil() as u64);
+        self.last_index = self.last_index.saturating_add((jump.ceil() as u64).max(1));
         self.last_index
     }
 }
