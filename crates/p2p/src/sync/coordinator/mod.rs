@@ -71,8 +71,9 @@ use acp::DocumentACP;
 use blockstore::Blockstore;
 use cid::Cid;
 use parking_lot::Mutex;
+use defra_core::thread_bounds::MaybeSend;
+use n0_future::task::JoinHandle;
 use tokio::sync::{watch, Notify, OwnedSemaphorePermit, Semaphore};
-use tokio::task::JoinHandle;
 
 use crate::bitswap::{AccessMode, ReplicatorRegistry};
 use crate::replicator::ReplicationFilterMatcher;
@@ -434,7 +435,7 @@ impl SyncShutdownHandle {
 
     fn spawn_task<F>(&self, future: F) -> bool
     where
-        F: std::future::Future<Output = ()> + Send + 'static,
+        F: std::future::Future<Output = ()> + MaybeSend + 'static,
     {
         let mut tasks = self.inner.background_tasks.lock();
         if self.is_shutting_down() {
@@ -444,7 +445,7 @@ impl SyncShutdownHandle {
         // track live tasks instead of total spawn count (#1099).
         tasks.retain(|task| !task.is_finished());
         // Hold the registry lock through spawning so shutdown cannot miss the task.
-        tasks.push(tokio::spawn(future));
+        tasks.push(n0_future::task::spawn(future));
         true
     }
 
@@ -524,7 +525,7 @@ impl SyncShutdownHandle {
 
     fn spawn_pending_dag_fetch<F>(&self, root_cid: Cid, future: F) -> bool
     where
-        F: std::future::Future<Output = ()> + Send + 'static,
+        F: std::future::Future<Output = ()> + MaybeSend + 'static,
     {
         let mut tasks = self.inner.pending_dag_fetch_tasks.lock();
         Self::prune_pending_dag_fetches(&mut tasks);
@@ -540,7 +541,7 @@ impl SyncShutdownHandle {
         }
 
         let shutdown = self.clone();
-        let task = tokio::spawn(async move {
+        let task = n0_future::task::spawn(async move {
             tokio::select! {
                 _ = shutdown.cancelled() => {}
                 _ = future => {}
@@ -1008,7 +1009,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
     /// Spawn work owned by this coordinator so shutdown can drain or cancel it.
     pub fn spawn_background_task<F>(&self, task_name: &'static str, future: F)
     where
-        F: std::future::Future<Output = ()> + Send + 'static,
+        F: std::future::Future<Output = ()> + MaybeSend + 'static,
     {
         if !self.runtime.shutdown.spawn_task(future) {
             tracing::debug!(task = task_name, "Skipping background task during shutdown");
@@ -1021,7 +1022,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
     /// non-authoritative dissemination work.
     pub fn spawn_non_authoritative_broadcast_task<F>(&self, task_name: &'static str, future: F)
     where
-        F: std::future::Future<Output = ()> + Send + 'static,
+        F: std::future::Future<Output = ()> + MaybeSend + 'static,
     {
         if self.runtime.shutdown.is_shutting_down() {
             tracing::debug!(
@@ -1055,7 +1056,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
         future: F,
     ) -> bool
     where
-        F: std::future::Future<Output = ()> + Send + 'static,
+        F: std::future::Future<Output = ()> + MaybeSend + 'static,
     {
         if self
             .runtime

@@ -3,7 +3,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use iroh::endpoint::BindOpts;
 use iroh::{EndpointId, SecretKey};
 
 use super::config::{IrohAllowlistConfig, IrohDiscoveryConfig, IrohRelayModeConfig};
@@ -143,6 +142,44 @@ pub(super) fn relay_mode_from_config(
     }
 }
 
+/// A browser has no DNS resolver, so `DnsAddressLookup` is compiled out of iroh
+/// there. Resolution instead goes back to the pkarr relay over HTTP, which
+/// serves the same records the DNS lookup would have answered from.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(super) fn apply_discovery_config(
+    mut builder: iroh::endpoint::Builder,
+    config: &IrohDiscoveryConfig,
+) -> crate::error::Result<iroh::endpoint::Builder> {
+    use iroh::address_lookup::{PkarrPublisher, PkarrResolver};
+
+    builder = match config {
+        IrohDiscoveryConfig::N0 => builder
+            .address_lookup(PkarrPublisher::n0_dns())
+            .address_lookup(PkarrResolver::n0_dns()),
+        IrohDiscoveryConfig::Disabled => builder.clear_address_lookup(),
+        IrohDiscoveryConfig::CustomDns {
+            origin_domain,
+            pkarr_relay_url,
+        } => {
+            let _ = origin_domain;
+            builder
+                .address_lookup(PkarrPublisher::builder(
+                    pkarr_relay_url
+                        .parse()
+                        .map_err(|e| invalid_pkarr_relay(pkarr_relay_url, e))?,
+                ))
+                .address_lookup(PkarrResolver::builder(
+                    pkarr_relay_url
+                        .parse()
+                        .map_err(|e| invalid_pkarr_relay(pkarr_relay_url, e))?,
+                ))
+        }
+    };
+
+    Ok(builder)
+}
+
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub(super) fn apply_discovery_config(
     mut builder: iroh::endpoint::Builder,
     config: &IrohDiscoveryConfig,
@@ -158,12 +195,9 @@ pub(super) fn apply_discovery_config(
             origin_domain,
             pkarr_relay_url,
         } => {
-            let pkarr_relay = pkarr_relay_url.parse().map_err(|e| {
-                crate::error::Error::Transport(format!(
-                    "invalid pkarr relay URL '{}': {}",
-                    pkarr_relay_url, e
-                ))
-            })?;
+            let pkarr_relay = pkarr_relay_url
+                .parse()
+                .map_err(|e| invalid_pkarr_relay(pkarr_relay_url, e))?;
             builder
                 .address_lookup(PkarrPublisher::builder(pkarr_relay))
                 .address_lookup(DnsAddressLookup::builder(origin_domain.clone()))
@@ -173,11 +207,36 @@ pub(super) fn apply_discovery_config(
     Ok(builder)
 }
 
+fn invalid_pkarr_relay(url: &str, error: impl std::fmt::Display) -> crate::error::Error {
+    crate::error::Error::Transport(format!("invalid pkarr relay URL '{}': {}", url, error))
+}
+
+/// A browser endpoint owns no UDP socket — it reaches peers only through a
+/// relay — so a bind request here is a misconfiguration rather than something
+/// to quietly drop.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub(super) fn apply_bind_config(
+    builder: iroh::endpoint::Builder,
+    bind_addr: Option<std::net::IpAddr>,
+    bind_port: Option<u16>,
+) -> crate::error::Result<iroh::endpoint::Builder> {
+    if bind_addr.is_some() || bind_port.is_some() {
+        return Err(crate::error::Error::Transport(
+            "a browser iroh endpoint cannot bind an address or port; it is relay-only".into(),
+        ));
+    }
+
+    Ok(builder)
+}
+
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 pub(super) fn apply_bind_config(
     mut builder: iroh::endpoint::Builder,
     bind_addr: Option<std::net::IpAddr>,
     bind_port: Option<u16>,
 ) -> crate::error::Result<iroh::endpoint::Builder> {
+    use iroh::endpoint::BindOpts;
+
     let bind_error =
         |error| crate::error::Error::Transport(format!("invalid bind addr: {}", error));
 
