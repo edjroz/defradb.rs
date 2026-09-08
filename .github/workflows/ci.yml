@@ -282,7 +282,7 @@ jobs:
         run: command -v wasm-pack >/dev/null 2>&1 || cargo install wasm-pack --locked
       - name: Build WASM
         run: >-
-          CARGO_PROFILE_RELEASE_OPT_LEVEL=z RUSTFLAGS="-C target-feature=+simd128"
+          CARGO_PROFILE_RELEASE_OPT_LEVEL=z
           wasm-pack build crates/wasm --release --target web --out-dir ../../pkg/wasm
       - uses: browser-actions/setup-firefox@0bc507ddf224827e3b1af68e014d5e42ab93e795 # v1
       - uses: browser-actions/setup-geckodriver@eb8b0670366f719ca31703766a8cb7e3ea2c56ed # v0.0.0
@@ -296,7 +296,6 @@ jobs:
       - name: Run wasm tests
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
-          RUSTFLAGS: -C target-feature=+simd128
         run: |
           cargo test -p defra-wasm --target wasm32-unknown-unknown --lib --tests 2>&1 | tee wasm-test.log
           if grep -q "running 0 tests" wasm-test.log; then

@@ -70,6 +70,10 @@ pub mod verification;
 #[cfg(target_arch = "wasm32")]
 pub use client::DefraClient;
 
+// Relay-only P2P endpoint, when the build includes it.
+#[cfg(all(target_arch = "wasm32", feature = "iroh"))]
+pub use sync::IrohSession;
+
 // Re-export standalone verification functions
 pub use verification::{
     compute_document_cid, generate_ed25519_keypair, generate_secp256k1_keypair, sha256_hash,

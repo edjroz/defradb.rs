@@ -3648,6 +3648,8 @@ dependencies = [
  "hex",
  "identity",
  "js-sys",
+ "n0-future",
+ "p2p",
  "query",
  "schema",
  "serde",
@@ -3659,7 +3661,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
- "wasm-streams 0.4.2",
+ "wasm-streams 0.5.0",
  "web-sys",
  "zeroize",
 ]

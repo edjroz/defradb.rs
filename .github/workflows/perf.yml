@@ -238,7 +238,6 @@ jobs:
       - name: Run the browser benchmarks
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
-          RUSTFLAGS: -C target-feature=+simd128
         run: |
           set -euo pipefail
           cargo test -p defra-wasm --target wasm32-unknown-unknown --release \
@@ -282,7 +281,7 @@ jobs:
           set -euo pipefail
           cargo build --release -p cli
           command -v wasm-pack >/dev/null 2>&1 || cargo install wasm-pack --locked
-          CARGO_PROFILE_RELEASE_OPT_LEVEL=z RUSTFLAGS="-C target-feature=+simd128" \
+          CARGO_PROFILE_RELEASE_OPT_LEVEL=z \
             wasm-pack build crates/wasm --release --target web --out-dir ../../pkg/wasm
       - name: Weigh them
         run: |

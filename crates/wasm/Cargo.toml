@@ -31,7 +31,9 @@ web-sys = { version = "0.3", features = [
     "Url",
     "Window",
 ] }
-wasm-streams = "0.4"
+# Must match what iroh's reqwest links: two versions of this crate export the
+# same wasm-bindgen symbols and the module fails to link.
+wasm-streams = "0.5"
 gloo-timers = { version = "0.3", features = ["futures"] }
 
 # Serialization for JS interop
@@ -69,6 +71,12 @@ crypto = { path = "../crypto" }
 identity = { path = "../identity" }
 zeroize = "1.8"
 events = { path = "../events", features = ["channel"] }
+# Relay-only browser P2P. Off by default: it is a large addition to the
+# artifact, and a page that syncs over HTTP has no use for it.
+p2p = { path = "../p2p", default-features = false, features = [
+    "iroh-transport",
+], optional = true }
+n0-future = { version = "0.3", optional = true }
 
 # IPLD
 cid.workspace = true
@@ -86,6 +94,8 @@ defra-perf = { path = "../../tools/perf" }
 default = ["debug"]
 # Enable console_error_panic_hook for better error messages in debug builds
 debug = ["dep:console_error_panic_hook"]
+# Relay-only Iroh P2P endpoint, exposed to JS as IrohSession.
+iroh = ["dep:p2p", "dep:n0-future"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-Oz", "--enable-mutable-globals", "--enable-bulk-memory", "--enable-nontrapping-float-to-int", "--enable-simd"]
