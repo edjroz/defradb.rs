@@ -155,3 +155,7 @@ mach2 = "0.4"
 [[test]]
 name = "acp_replay_outage_repro"
 path = "tests/acp_replay_outage_repro.rs"
+
+[[test]]
+name = "acp_replay_outage_cross_runtime"
+path = "tests/acp_replay_outage_cross_runtime.rs"
