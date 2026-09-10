@@ -66,6 +66,10 @@ name = "p2p_backlog"
 path = "tests/p2p_backlog.rs"
 
 [[test]]
+name = "spike_h2_drain"
+path = "tests/spike_h2_drain.rs"
+
+[[test]]
 name = "p2p_push_storm"
 path = "tests/p2p_push_storm.rs"
 
