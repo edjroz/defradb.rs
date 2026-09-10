@@ -21,7 +21,7 @@
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -37,6 +37,12 @@ const CONVERGE_CEILING: Duration = Duration::from_secs(240);
 /// What "fixed" would mean: catch-up no slower than the outage plus one
 /// replicator retry step.
 const FIXED_THRESHOLD: Duration = Duration::from_secs(30);
+/// Outages `rust_rust_node_down_three_cuts` inflicts on the same peer inside
+/// one node0 process lifetime.
+const CUTS: usize = 3;
+/// Documents written on node0 during each of those outages. Short on purpose:
+/// what is being measured is the schedule, not throughput.
+const THREE_CUT_BURST: usize = 3;
 
 /// Which recovery machinery actually ran. `TestCluster::wait_for_log` matches
 /// *registered pattern names*, not free text -- backbone
@@ -79,6 +85,11 @@ struct BlackHole {
     port: u16,
     open: Arc<AtomicBool>,
     accepted: Arc<AtomicUsize>,
+    /// When each inbound connection was accepted. While node1's process is
+    /// down every accept is a dial that reached the relay and found nothing
+    /// behind it, so the gaps between them are the retry rungs node0 is
+    /// actually walking -- the one thing the node logs never print.
+    dials: Arc<Mutex<Vec<Instant>>>,
 }
 
 impl BlackHole {
@@ -88,12 +99,15 @@ impl BlackHole {
         let port = listener.local_addr().expect("local_addr").port();
         let open = Arc::new(AtomicBool::new(true));
         let accepted = Arc::new(AtomicUsize::new(0));
+        let dials = Arc::new(Mutex::new(Vec::new()));
 
         let gate = open.clone();
         let count = accepted.clone();
+        let dialed = dials.clone();
         thread::spawn(move || {
             for inbound in listener.incoming() {
                 let Ok(inbound) = inbound else { break };
+                dialed.lock().expect("dial log").push(Instant::now());
                 if mode == CutMode::Reset && !gate.load(Ordering::SeqCst) {
                     // A re-dial during a hard cut must fail, not hang.
                     continue;
@@ -118,7 +132,19 @@ impl BlackHole {
             port,
             open,
             accepted,
+            dials,
         }
+    }
+
+    /// Seconds from `since` to each dial the relay accepted after it.
+    fn dials_since(&self, since: Instant) -> Vec<f64> {
+        self.dials
+            .lock()
+            .expect("dial log")
+            .iter()
+            .filter(|at| **at >= since)
+            .map(|at| at.duration_since(since).as_secs_f64())
+            .collect()
     }
 
     fn cut(&self) {
@@ -202,6 +228,27 @@ fn peer_id_of(cluster: &TestCluster, idx: usize) -> String {
     split_multiaddr(&addr).1
 }
 
+/// Wall clock, so a printed row can be lined up against the node log's own
+/// timestamps. `Instant` cannot be.
+fn epoch_secs() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64()
+}
+
+/// node0's replicator record for node1. `"status":0` is Active, which
+/// `finish_peer` writes only after `clear_retry_peer` drained the marker set
+/// (`crates/p2p-adapter/src/retry.rs:264-285`) -- the one path that resets the
+/// rung. `1` is Inactive: markers survived the pass and the rung did not reset.
+fn replicator_status(cluster: &TestCluster) -> String {
+    cluster
+        .client(0)
+        .p2p_replicator_list()
+        .map(|v| v.to_string())
+        .unwrap_or_else(|e| format!("error: {e}"))
+}
+
 fn write_doc(cluster: &TestCluster, idx: usize, label: &str, seq: usize) {
     cluster
         .client(idx)
@@ -242,13 +289,16 @@ async fn partition_catchup(mode: CutMode, cut: Duration, name: &str) {
     partition_catchup_with(mode, cut, name, &[]).await
 }
 
+/// Build the two-node pair, route node0's replicator to node1 through the
+/// relay, and replicate one baseline document over it. Returns the cluster,
+/// the relay, node1's peer id and how long the baseline took.
+///
 /// `extra_args` are appended to both Rust nodes' command lines.
-async fn partition_catchup_with(
+async fn proxied_pair(
     mode: CutMode,
-    cut: Duration,
     name: &str,
     extra_args: &[&str],
-) {
+) -> (TestCluster, BlackHole, String, Duration) {
     if std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var("RUST_LOG", "info,p2p=debug,defra_p2p_adapter=debug");
     }
@@ -275,7 +325,7 @@ async fn partition_catchup_with(
     if !extra_args.is_empty() {
         builder = builder.with_extra_rust_args(extra_args.iter().map(|a| a.to_string()));
     }
-    let mut cluster = builder.build().await.expect("cluster");
+    let cluster = builder.build().await.expect("cluster");
 
     for idx in 0..2 {
         cluster
@@ -310,6 +360,12 @@ async fn partition_catchup_with(
     write_doc(&cluster, 0, "pre", 0);
     let baseline = wait_for(&cluster, 1, Duration::from_secs(60))
         .expect("baseline doc never replicated through the proxy");
+    (cluster, hole, peer_id, baseline)
+}
+
+/// `extra_args` are appended to both Rust nodes' command lines.
+async fn partition_catchup_with(mode: CutMode, cut: Duration, name: &str, extra_args: &[&str]) {
+    let (mut cluster, hole, peer_id, baseline) = proxied_pair(mode, name, extra_args).await;
 
     if mode != CutMode::RestartOnly {
         hole.cut();
@@ -375,11 +431,7 @@ async fn partition_catchup_with(
     // (`crates/p2p-adapter/src/retry.rs:264-285`), and `record_push_failure`
     // flips it Inactive (`retry.rs:99-108`). Active here means the dropped
     // documents were never handed to the persisted ladder at all.
-    let replicators = cluster
-        .client(0)
-        .p2p_replicator_list()
-        .map(|v| v.to_string())
-        .unwrap_or_else(|e| format!("error: {e}"));
+    let replicators = replicator_status(&cluster);
 
     eprintln!(
         "[h1:{name}] RESULT baseline={baseline:?} cut={cut:?} docs={want} converged={converged:?} \
@@ -407,6 +459,104 @@ async fn partition_catchup_with(
         converged <= CONVERGE_CEILING,
         "[{name}] catch-up {converged:?} exceeded the characterised ceiling {CONVERGE_CEILING:?}"
     );
+}
+
+/// Cut the *same* peer `CUTS` times inside one node0 process lifetime.
+///
+/// The durable rung is monotonic: every failed pass bumps `num_retries`
+/// (`crates/p2p-adapter/src/retry.rs:250`, `:258`), a successful replay does
+/// nothing to it (`:224-232`), and the only reset is `clear_retry_peer` from
+/// `finish_peer` once the peer's marker set drains (`:264-269`, `:272-285`).
+/// One outage therefore only ever walks the first two or three rungs, which is
+/// tens of seconds. Whether a *repeated* outage keeps climbing -- turning tens
+/// of seconds into the minutes run 622 reported -- is what this measures, and
+/// every other test in this file partitions a fresh peer exactly once.
+///
+/// Each cut prints its own row before the assertions run, so a cut that never
+/// converges is still reported rather than lost to the panic.
+async fn three_cut_catchup(name: &str, cut: Duration, extra_args: &[&str]) {
+    let (mut cluster, hole, peer_id, baseline) =
+        proxied_pair(CutMode::NodeDown, name, extra_args).await;
+
+    let mut total = 1usize;
+    let mut converged = Vec::new();
+    for n in 1..=CUTS {
+        hole.cut();
+        let stopped = cluster.stop_node(1).await.expect("stop node1");
+        let cut_at = Instant::now();
+        for i in 0..THREE_CUT_BURST {
+            write_doc(&cluster, 0, &format!("c{n}-{i}"), total + i);
+            thread::sleep(Duration::from_millis(200));
+        }
+        total += THREE_CUT_BURST;
+        while cut_at.elapsed() < cut {
+            thread::sleep(Duration::from_millis(200));
+        }
+        let during = try_count_docs(&cluster, 1);
+        assert!(
+            during.is_err(),
+            "[{name}] cut {n}: node1 answered a query ({during:?}) while its process was stopped"
+        );
+        // Every dial the relay took while node1 was gone found nothing behind
+        // it, so these are the sweep's redials and their gaps are the rungs.
+        let redials = hole.dials_since(cut_at);
+
+        cluster
+            .start_stopped_node(stopped, Duration::from_secs(60))
+            .await
+            .expect("restart node1");
+        let peer_id_after = peer_id_of(&cluster, 1);
+        hole.heal();
+        let healed_at = epoch_secs();
+        let caught_up = wait_for(&cluster, total, CONVERGE_CEILING);
+        converged.push(caught_up);
+
+        eprintln!(
+            "[h1:{name}] CUT {n} docs={total} converged={caught_up:?} \
+             outage_redials_s={redials:?} heal_epoch={healed_at:.3} \
+             peer_id_stable={} replicators={}",
+            peer_id_after == peer_id,
+            replicator_status(&cluster),
+        );
+        assert_eq!(
+            peer_id_after, peer_id,
+            "[{name}] cut {n}: node1 came back on a different peer id"
+        );
+    }
+
+    eprintln!(
+        "[h1:{name}] RESULT baseline={baseline:?} cut={cut:?} cuts={CUTS} \
+         burst={THREE_CUT_BURST} docs={total} converged={converged:?} \
+         ceiling={CONVERGE_CEILING:?} fixed_threshold={FIXED_THRESHOLD:?}"
+    );
+
+    for (i, caught_up) in converged.iter().enumerate() {
+        assert!(
+            caught_up.is_some(),
+            "[{name}] cut {} never converged inside {CONVERGE_CEILING:?}",
+            i + 1
+        );
+    }
+}
+
+/// Three 60 s outages on one peer, default ladder. If the rung survives a
+/// successful catch-up, cut 3 waits on a rung several steps up and the third
+/// number is minutes rather than the ~38 s p50 a single 60 s cut costs.
+#[tokio::test]
+async fn rust_rust_node_down_three_cuts() {
+    three_cut_catchup("threecut", Duration::from_secs(60), &[]).await;
+}
+
+/// The same three cuts with the ladder flattened, so any climb across cuts is
+/// separated from the ladder's own shape.
+#[tokio::test]
+async fn rust_rust_node_down_three_cuts_flat_ladder() {
+    three_cut_catchup(
+        "threecut-flat",
+        Duration::from_secs(60),
+        &["--replicator-retry-intervals", "2,2,2,2"],
+    )
+    .await;
 }
 
 /// The briefed shape: a 15 s cut, shorter than the 30 s push send timeout.
