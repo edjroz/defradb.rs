@@ -38,17 +38,19 @@ const CONVERGE_CEILING: Duration = Duration::from_secs(240);
 /// replicator retry step.
 const FIXED_THRESHOLD: Duration = Duration::from_secs(30);
 
-/// Log lines that say which recovery machinery actually ran. Probed on both
-/// nodes after the heal so the two candidate mechanisms can be told apart.
+/// Which recovery machinery actually ran. `TestCluster::wait_for_log` matches
+/// *registered pattern names*, not free text -- backbone
+/// `defra-harness/src/observe/patterns.rs` defines exactly four -- so these are
+/// the only signatures observable without a harness change. `peer_disconnected`
+/// on node0 is the one that matters: it says whether the sender ever noticed
+/// its socket had died.
 const SIGNATURES: &[(usize, &str)] = &[
     (0, "p2p_listening"),
-    (0, "Peer disconnected"),
-    (0, "retry push failed"),
-    (0, "retry push timed out"),
-    (0, "Peer connected"),
-    (1, "Timeout fetching selective block batch"),
-    (1, "Bitswap timeout waiting for block"),
-    (1, "DAG fetch failed after exhausting retries"),
+    (0, "peer_connected"),
+    (0, "peer_disconnected"),
+    (0, "replication_started"),
+    (1, "peer_connected"),
+    (1, "peer_disconnected"),
 ];
 
 #[derive(Clone, Copy, PartialEq)]
@@ -66,6 +68,10 @@ enum CutMode {
     /// a reset, while the partitioned node loses its own socket state and is
     /// unreachable at every address it advertises.
     NodeDown,
+    /// Stop and restart node1 with the relay left open, so the sender sees an
+    /// immediate reset instead of silence. Isolates "the peer went away" from
+    /// "the sender was never told".
+    RestartOnly,
 }
 
 /// A TCP relay that can be frozen mid-stream without closing either socket.
@@ -217,13 +223,30 @@ async fn probe_signatures(cluster: &TestCluster) -> Vec<String> {
 }
 
 async fn partition_catchup(mode: CutMode, cut: Duration, name: &str) {
+    partition_catchup_with(mode, cut, name, &[]).await
+}
+
+/// `extra_args` are appended to both Rust nodes' command lines.
+async fn partition_catchup_with(
+    mode: CutMode,
+    cut: Duration,
+    name: &str,
+    extra_args: &[&str],
+) {
     std::env::set_var("RUST_LOG", "info,p2p=debug,defra_p2p_adapter=debug");
-    let mut cluster = TestCluster::builder()
+    // A persistent store is mandatory here, not a preference: the harness
+    // defaults to `--store memory` (backbone `defra-harness/src/node/rust_node.rs:120`),
+    // so a node stopped and restarted by `CutMode::NodeDown` would come back
+    // with no schema and no documents, and "never converged" would measure the
+    // wipe rather than the partition.
+    let mut builder = TestCluster::builder()
         .rust_nodes(2)
         .with_p2p()
-        .build()
-        .await
-        .expect("cluster");
+        .with_store("regolith");
+    if !extra_args.is_empty() {
+        builder = builder.with_extra_rust_args(extra_args.iter().map(|a| a.to_string()));
+    }
+    let mut cluster = builder.build().await.expect("cluster");
 
     for idx in 0..2 {
         cluster
@@ -259,8 +282,10 @@ async fn partition_catchup(mode: CutMode, cut: Duration, name: &str) {
     let baseline = wait_for(&cluster, 1, Duration::from_secs(60))
         .expect("baseline doc never replicated through the proxy");
 
-    hole.cut();
-    let stopped = if mode == CutMode::NodeDown {
+    if mode != CutMode::RestartOnly {
+        hole.cut();
+    }
+    let stopped = if matches!(mode, CutMode::NodeDown | CutMode::RestartOnly) {
         Some(cluster.stop_node(1).await.expect("stop node1"))
     } else {
         None
@@ -297,7 +322,9 @@ async fn partition_catchup(mode: CutMode, cut: Duration, name: &str) {
             .await
             .expect("restart node1");
     }
-    hole.heal();
+    if mode != CutMode::RestartOnly {
+        hole.heal();
+    }
     let want = DURING_CUT + 1;
     let converged = wait_for(&cluster, want, CONVERGE_CEILING);
     let conns_after = hole.accepted.load(Ordering::Relaxed);
@@ -353,4 +380,31 @@ async fn rust_rust_node_down_cut_45s() {
 #[tokio::test]
 async fn rust_rust_node_down_cut_15s() {
     partition_catchup(CutMode::NodeDown, Duration::from_secs(15), "nodedown-15s").await;
+}
+
+/// Discriminator for the durable replicator ladder
+/// (`RETRY_INTERVALS_SECS = [30, 60, 120, 240, 480, 960, 1920]`,
+/// `crates/storage/src/stores/retry_info.rs:14`). Same partition, same shape,
+/// but the ladder is flattened to a flat 2 s via `--replicator-retry-intervals`.
+/// If this converges quickly while `rust_rust_node_down_cut_15s` does not, the
+/// ladder is what holds the documents back; if it also fails, the cause is on
+/// the receiver and the ladder is a bystander.
+#[tokio::test]
+async fn rust_rust_node_down_cut_15s_flat_ladder() {
+    partition_catchup_with(
+        CutMode::NodeDown,
+        Duration::from_secs(15),
+        "nodedown-15s-flat",
+        &["--replicator-retry-intervals", "2,2,2,2"],
+    )
+    .await;
+}
+
+/// Same downtime, but the sender is told: the relay stays open, so node1's
+/// death arrives as a reset. If this converges and `rust_rust_node_down_cut_15s`
+/// does not, silence toward the sender is the trigger; if both fail, any
+/// downtime loses the writes and the partition is incidental.
+#[tokio::test]
+async fn rust_rust_restart_only_15s() {
+    partition_catchup(CutMode::RestartOnly, Duration::from_secs(15), "restart-15s").await;
 }
