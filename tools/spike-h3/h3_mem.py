@@ -102,7 +102,11 @@ def snapshot(pid, outdir, tag):
     for tool in ("vmmap", "heap"):
         args = ["vmmap", "-summary", str(pid)] if tool == "vmmap" else ["heap", str(pid)]
         with open(os.path.join(outdir, f"{tool}-{tag}.txt"), "w") as f:
-            subprocess.run(args, stdout=f, stderr=subprocess.STDOUT, timeout=180)
+            subprocess.run(args, stdout=f, stderr=subprocess.STDOUT, timeout=600)
+    if os.environ.get("H3_STACK_LOGGING"):
+        with open(os.path.join(outdir, f"malloc-calltree-{tag}.txt"), "w") as f:
+            subprocess.run(["malloc_history", str(pid), "-callTree", "-consolidateAllBySymbol"],
+                           stdout=f, stderr=subprocess.STDOUT, timeout=900)
 
 
 def main():
