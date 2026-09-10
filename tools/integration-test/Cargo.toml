@@ -147,3 +147,7 @@ workspace = true
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 mach2 = "0.4"
+
+[[test]]
+name = "acp_replay_outage_repro"
+path = "tests/acp_replay_outage_repro.rs"
