@@ -1,0 +1,397 @@
+Process:         defra-h3 [89331]
+Path:            /Users/USER/*/defra-h3
+Load Address:    0x102e1c000
+Identifier:      defra-h3
+Version:         0
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  Python [89325]
+Target Type:     live task
+
+Date/Time:       2026-09-10 14:09:54.772 -0400
+Launch Time:     2026-09-10 14:06:17.270 -0400
+OS Version:      macOS 26.6.2 (25G83)
+Report Version:  7
+Analysis Tool:   /usr/bin/heap
+
+Physical footprint:         90.4M
+Physical footprint (peak):  90.4M
+Idle exit:                  untracked
+----
+
+Process 89331: 3 zones
+
+All zones: 46356 nodes malloced - Sizes: 34832KB[4] 2192KB[4] 1040KB[7] 912KB[1] 576KB[1] 560KB[1] 528KB[1] 336KB[1] 304KB[1] 272KB[1] 256KB[1] 208KB[3] 160KB[2] 144KB[2] 96KB[1] 80KB[7] 64KB[1] 48KB[7] 28KB[5] 24KB[102] 20KB[6] 16KB[1] 14KB[109] 12KB[108] 10KB[13] 8KB[4] 7KB[10] 6KB[11] 5KB[13] 4KB[9] 3.5KB[537] 3KB[725] 2.5KB[31] 2KB[102] 1.75KB[72] 1.5KB[127] 1.25KB[28] 1KB[10] 896[232] 768[134] 640[311] 512[132] 448[2898] 384[1467] 320[1239] 256[749] 224[30] 192[44] 160[4450] 128[4412] 112[175] 96[5685] 80[6959] 64[3620] 48[6239] 32[4504] 16[1007] 
+
+Found:  162 ObjC classes  48 Swift classes  66 CFTypes
+Derived 325 type names for non-objects from allocation backtraces
+
+-----------------------------------------------------------------------
+All zones: 46356 nodes (182312352 bytes)
+
+   COUNT      BYTES       AVG   CLASS_NAME                                        TYPE    BINARY
+   =====      =====       ===   ==========                                        ====    ======
+   10513    1706464     162.3   malloc in _RNvMNtCslJsSqIQKwiA_5alloc5allocNtB2_6Global18alloc_impl_runtimeCs7shduL4byqG_10defra_http  C       defra-h3
+    5682     570752     100.4   malloc in _RNvMs7_NtCsaLNMj3irktn_9kovan_map9hopscotchINtB5_12HopscotchMapINtNtCslJsSqIQKwiA_5alloc3vec3VechEINtNtCshiuf5WXvxYg_8regolith10txn_buffer7NodeRefBZ_INtNtCsgtPOCBgevO_4core6option6OptionBZ_EEE11insert_implB1D_  C       defra-h3
+    4430     641312     144.8   malloc in _RNvMNtCslJsSqIQKwiA_5alloc5allocNtB2_6Global18alloc_impl_runtimeCs9iR7aollNW9_3cli  C       defra-h3
+    3743    6663904    1780.4   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner15try_allocate_inCsjevKHkJAzVy_5gimli  C       defra-h3
+    2983     238640      80.0   pthread_mutex_t                                   C       libpthread.dylib
+    2299     636784     277.0   malloc in _RNvMNtCsbtulRcdZyY5_5bytes5bytesNtB2_5Bytes15copy_from_slice  C       defra-h3
+    2264      72448      32.0   malloc in _RNvNtCsbtulRcdZyY5_5bytes5bytes17shallow_clone_vec  C       defra-h3
+    1384      83888      60.6   malloc in _RNvXs4_NtCslJsSqIQKwiA_5alloc6stringNtB5_6StringNtNtCsgtPOCBgevO_4core5clone5Clone5clone  C       defra-h3
+    1359      97440      71.7   malloc in _RNvMs_NtNtNtCsjBKoxp0uHp1_14regex_automata3nfa8thompson7builderNtB4_7Builder5build  C       defra-h3
+    1184     758656     640.8   memalign in _RNvCs9wFQrvczXsK_7___rustc11___rdl_alloc  C       defra-h3
+    1000      95968      96.0   malloc in _RNvMNtCslJsSqIQKwiA_5alloc5allocNtB2_6Global18alloc_impl_runtimeCsloWICMGVDO_3kms  C       defra-h3
+     999      48208      48.3   malloc in _RNvMNtCslJsSqIQKwiA_5alloc5allocNtB2_6Global18alloc_impl_runtimeCsbSnzIu6hNCU_2db  C       defra-h3
+     878      34240      39.0   malloc in _RNvMNtCslJsSqIQKwiA_5alloc5allocNtB2_6Global18alloc_impl_runtimeCsjoOuaYuHxcj_5query  C       defra-h3
+     588    1806336    3072.0   malloc in _RINvMNtCs3dkIMOBovLJ_13tokio_context4taskNtB3_14TaskController5spawnNCNvMs_NtNtCshdLnojl1P5v_12iroh_bitswap6client7sessionNtB1b_9LoopState3new0EB1f_  C       defra-h3
+     488       9920      20.3   malloc in _RNvXs6_NtCsbtulRcdZyY5_5bytes9bytes_mutNtB5_8BytesMutINtNtCsgtPOCBgevO_4core7convert4FromRShE4from  C       defra-h3
+     428    1221568    2854.1   malloc in _RNvMNtCslJsSqIQKwiA_5alloc5allocNtB2_6Global18alloc_impl_runtimeCs8RAQY46Mr7C_10defra_core  C       defra-h3
+     408      15808      38.7   Class.data (class_rw_t)                           C       libobjc.A.dylib
+     380       6960      18.3   malloc in _RNvMs1_NtCseREK6nP3Sgh_7matchit6escapeNtB5_12UnescapedRef8to_owned  C       defra-h3
+     310     259888     838.3   malloc in _RNvMNtCslJsSqIQKwiA_5alloc5allocNtB2_6Global18alloc_impl_runtimeCsl21FAGs3kuF_5defra  C       defra-h3
+     216      10368      48.0   malloc in _RNvMs9_NtNtCsfRHfbq1AK39_13kovan_channel7flavors9unboundedINtB5_8ReceiveruE13recv_deadlineCshiuf5WXvxYg_8regolith  C       defra-h3
+     215      32832     152.7   malloc in _RNvMs3_CsdokYwTApm63_14event_listenerNtB5_5Event6listen  C       defra-h3
+     199      88800     446.2   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCshdLnojl1P5v_12iroh_bitswap  C       defra-h3
+     198      89600     452.5   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTINtNtCs7oc5W8EkOYB_3cid3cid3CidKj40_EuEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_uNtNtCsjvVDUHGOFe5_5ahash12random_state11RandomStateE0ECshdLnojl1P5v_12iroh_bitswap  C       defra-h3
+     196     316736    1616.0   malloc in _RNvMs0_NtNtNtCshdLnojl1P5v_12iroh_bitswap6client7session19session_want_senderNtB5_17SessionWantSender3new  C       defra-h3
+     196      87808     448.0   malloc in _RNvCsb3J0X11yz2J_9deadqueue12new_notifier  C       defra-h3
+     196      20384     104.0   malloc in _RINvNtNtCskiVOz4vPCKK_5tokio4sync9broadcast7channeluECs3dkIMOBovLJ_13tokio_context  C       defra-h3
+     190      25776     135.7   xpc_dictionary_t (Storage)                        C       libxpc.dylib
+     159     451712    2841.0   malloc in _RNvMNtCslJsSqIQKwiA_5alloc5allocNtB2_6Global18alloc_impl_runtimeCs2DWFmapZhxI_4lens  C       defra-h3
+     149      13632      91.5   malloc in _RNvMNtCslJsSqIQKwiA_5alloc5allocNtB2_6Global18alloc_impl_runtimeCsb9wnD8JyU9u_3p2p  C       defra-h3
+     124       7936      64.0   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growB7_  C       defra-h3
+     120      86368     719.7   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCsjevKHkJAzVy_5gimli  C       defra-h3
+     111      14208     128.0   malloc in _RNvNtNtCskiVOz4vPCKK_5tokio4time8interval8interval  C       defra-h3
+      99     220832    2230.6   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCshdLnojl1P5v_12iroh_bitswap  C       defra-h3
+      99       9920     100.2   malloc in _RNvMs7_NtCsaLNMj3irktn_9kovan_map9hopscotchINtB5_12HopscotchMapINtNtCslJsSqIQKwiA_5alloc3vec3VechEINtNtCshiuf5WXvxYg_8regolith10txn_buffer7NodeRefBZ_INtNtCsgtPOCBgevO_4core6option6OptionBZ_EEE10try_resizeB1D_  C       defra-h3
+      98    1404928   14336.0   malloc in _RINvXsb_NtNtCslJsSqIQKwiA_5alloc5boxed4iterINtB8_3BoxSINtNtCs78Oawbu132d_15crossbeam_queue11array_queue4SlotINtNtCs7oc5W8EkOYB_3cid3cid3CidKj40_EEEINtNtNtNtCsgtPOCBgevO_4core4iter6traits7collect12FromIteratorBQ_E9from_iterINtNtNtB2s_8adapters3map3MapINtNtNtB2u_3ops5range5RangejENCNvMs2_BT_INtBT_10ArrayQueueB1I_E3new0EECshdLnojl1P5v_12iroh_bitswap  C       defra-h3
+      98    1204224   12288.0   malloc in _RINvCs91N3lye1REY_13async_channel7boundedNtNtNtNtCshdLnojl1P5v_12iroh_bitswap6client7session19session_want_sender6ChangeEBL_  C       defra-h3
+      98     150528    1536.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTINtNtCs7oc5W8EkOYB_3cid3cid3CidKj40_ENtNtNtNtCshdLnojl1P5v_12iroh_bitswap6client7session19session_want_sender8WantInfoEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1r_NtNtCsjvVDUHGOFe5_5ahash12random_state11RandomStateE0EB1z_  C       defra-h3
+      98      62720     640.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdINtNtCsjvVDUHGOFe5_5ahash8hash_set8AHashSetINtNtCs7oc5W8EkOYB_3cid3cid3CidKj40_EEEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1E_NtNtB1J_12random_state11RandomStateE0ECshdLnojl1P5v_12iroh_bitswap  C       defra-h3
+      98      50176     512.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTINtNtCs7oc5W8EkOYB_3cid3cid3CidKj40_ENtNtCsa9BKTri5B3M_3std4time7InstantEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1r_NtNtCsjvVDUHGOFe5_5ahash12random_state11RandomStateE0ECshdLnojl1P5v_12iroh_bitswap  C       defra-h3
+      98      37632     384.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdjEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_jNtNtCsjvVDUHGOFe5_5ahash12random_state11RandomStateE0ECshdLnojl1P5v_12iroh_bitswap  C       defra-h3
+      98      37632     384.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIduEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_uNtNtCsjvVDUHGOFe5_5ahash12random_state11RandomStateE0ECshdLnojl1P5v_12iroh_bitswap  C       defra-h3
+      98      12544     128.0   malloc in _RNvMs_NtNtCshdLnojl1P5v_12iroh_bitswap6client7sessionNtB4_9LoopState3new  C       defra-h3
+      98       7840      80.0   malloc in _RINvNtNtCskiVOz4vPCKK_5tokio4sync7oneshot7channeluECshdLnojl1P5v_12iroh_bitswap  C       defra-h3
+      81      42432     523.9   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCsjevKHkJAzVy_5gimli  C       defra-h3
+      63       1008      16.0   malloc in _RNvXNtNtCslJsSqIQKwiA_5alloc3vec21spec_from_iter_nestedINtB4_3VechEINtB2_18SpecFromIterNestedhINtNtNtNtCsgtPOCBgevO_4core4iter8adapters4skip4SkipINtNtB4_6splice6SpliceINtNtB4_9into_iter8IntoIterhEEEE9from_iterCseREK6nP3Sgh_7matchit  C       defra-h3
+      59      40000     678.0   malloc in _RNvNtNtNtNtCskiVOz4vPCKK_5tokio7runtime9scheduler12multi_thread6worker6create  C       defra-h3
+      58     105216    1814.1   malloc in _RNvMs4_NtCsaLNMj3irktn_9kovan_map9hopscotchINtB5_5TableINtNtCslJsSqIQKwiA_5alloc3vec3VechEINtNtCshiuf5WXvxYg_8regolith10txn_buffer7NodeRefBR_INtNtCsgtPOCBgevO_4core6option6OptionBR_EEE3newB1v_  C       defra-h3
+      57       4560      80.0   malloc in _RNvMs5_NtCshiuf5WXvxYg_8regolith10txn_bufferINtB5_9TxnBufferINtNtCslJsSqIQKwiA_5alloc3vec3VechEINtNtCsgtPOCBgevO_4core6option6OptionBW_EE6insertB7_  C       defra-h3
+      51       5712     112.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCseREK6nP3Sgh_7matchit  C       defra-h3
+      50       2720      54.4   malloc in _RNvMsq_NtCslJsSqIQKwiA_5alloc4syncINtB5_3ArcShE15copy_from_sliceCsiI87CauE6wd_12libp2p_swarm  C       defra-h3
+      49      11088     226.3   malloc in _RNvMsq_NtCslJsSqIQKwiA_5alloc4syncINtB5_3ArcShE15copy_from_sliceCsjBKoxp0uHp1_14regex_automata  C       defra-h3
+      44     185264    4210.5   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCsjBKoxp0uHp1_14regex_automata  C       defra-h3
+      40       5536     138.4   malloc in _RINvNtCs9jpoUk1Tm5t_15futures_channel4mpsc7channelTNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdNtNtCsiI87CauE6wd_12libp2p_swarm6stream6StreamEECslNj5JMRR18L_13libp2p_stream  C       defra-h3
+      34       5440     160.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCsgtPOCBgevO_4core3any6TypeIdINtNtCslJsSqIQKwiA_5alloc5boxed3BoxDNtBS_3AnyNtNtBU_6marker4SyncNtB28_4SendEL_EEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1n_INtNtBU_4hash18BuildHasherDefaultNtNtNtCs2PG7zt2CiYY_18tracing_subscriber8registry10extensions8IdHasherEE0EB47_  C       defra-h3
+      34       4352     128.0   memalign in id2data(objc_object*, SyncKind, usage)  C       libobjc.A.dylib
+      33      14784     448.0   malloc in _RINvNtNtCskiVOz4vPCKK_5tokio4sync5watch7channeluEB6_  C       defra-h3
+      28       2016      72.0   malloc in _RINvNtNtCsa9BKTri5B3M_3std6thread9lifecycle15spawn_uncheckedNCNvMs4_NtNtNtCskiVOz4vPCKK_5tokio7runtime8blocking4poolNtB14_7Spawner12spawn_thread0uEB1a_  C       defra-h3
+      26       1984      76.3   CFData                                            ObjC    CoreFoundation
+      23       1296      56.3   Class.data.extended (class_rw_ext_t)              C       libobjc.A.dylib
+      22       4048     184.0   non-object in zone DefaultMallocZone_0x10c504000          <unknown>
+      21       1680      80.0   Class.data.readonly (class_ro_t)                  C       libobjc.A.dylib
+      20       2576     128.8   malloc in _RNvNtNtNtNtNtCsa9BKTri5B3M_3std3sys3pal4unix14stack_overflow11thread_info16set_current_info  C       defra-h3
+      18     123440    6857.8   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCsjBKoxp0uHp1_14regex_automata  C       defra-h3
+      17      52224    3072.0   malloc in dyld::ThreadLocalVariables::instantiateVariable(dyld::ThreadLocalVariables::Thunk const&)  C++     libdyld.dylib
+      17       2720     160.0   malloc in dyld::ThreadLocalVariables::addTermFunc(void (*)(void*), void*)  C++     libdyld.dylib
+      17       1776     104.5   Class.data.methods (method_array_t)               C       libobjc.A.dylib
+      17       1184      69.6   Class.methodCache._buckets (bucket_t)             C       libobjc.A.dylib
+      16     334160   20885.0   realloc in _RNvMs2_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner16shrink_uncheckedCsjBKoxp0uHp1_14regex_automata  C       defra-h3
+      16       1536      96.0   dispatch_semaphore_t                              ObjC    libdispatch.dylib
+      16       1024      64.0   malloc in _RNvMs_NtNtCsa9BKTri5B3M_3std6thread6threadNtB4_6Thread3new  C       defra-h3
+      15       5760     384.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdbEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_bNtNtCsjvVDUHGOFe5_5ahash12random_state11RandomStateE0ECshdLnojl1P5v_12iroh_bitswap  C       defra-h3
+      15        960      64.0   malloc in _RINvMNtNtNtCsa9BKTri5B3M_3std3sys4sync8once_boxINtB3_7OnceBoxNtNtNtNtNtB7_3pal4unix4sync7condvar7CondvarE10initializeNCNvMNtNtB5_7condvar7pthreadNtB1W_7Condvar3get0ECskiVOz4vPCKK_5tokio  C       defra-h3
+      15        240      16.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growB7_  C       defra-h3
+      14       1120      80.0   malloc in _RNvXs_NtNtNtNtCskiVOz4vPCKK_5tokio7runtime9scheduler12multi_thread4parkNtB4_6ParkerNtNtCsgtPOCBgevO_4core5clone5Clone5clone  C       defra-h3
+      13       4992     384.0   malloc in _RINvMs0_NtNtNtNtCsa9BKTri5B3M_3std3sys12thread_local6native4lazyINtB6_7StorageINtNtCslJsSqIQKwiA_5alloc2rc2RcINtNtCsgtPOCBgevO_4core4cell10UnsafeCellINtNtNtNtCs1tOJxHoMSGO_4rand4rngs7adapter9reseeding12ReseedingRngNtNtCs4Me1QNtlVb9_11rand_chacha6chacha12ChaCha12CoreNtNtCsi4BhtfqC9mM_9rand_core2os5OsRngEEEuE16get_or_init_slowNvNvNtB2u_6thread14THREAD_RNG_KEY27___rust_std_internal_init_fnEB2w_  C       defra-h3
+      13       4000     307.7   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecINtB5_11RawVecInnerNtNtCsa9BKTri5B3M_3std5alloc6SystemE11finish_growBW_  C       defra-h3
+      12        960      80.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCs2PG7zt2CiYY_18tracing_subscriber  C       defra-h3
+      12        576      48.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCsdrpy9YAzJIq_12aho_corasick  C       defra-h3
+      12        384      32.0   calloc in _RINvNtCs9jpoUk1Tm5t_15futures_channel4mpsc7channelTNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdNtNtCsiI87CauE6wd_12libp2p_swarm6stream6StreamEECslNj5JMRR18L_13libp2p_stream  C       defra-h3
+      11    8503296  773026.9   malloc in _RNvMs1_NtNtCshiuf5WXvxYg_8regolith6engine8skiplistNtB5_13ArenaSkipList6insert  C       defra-h3
+      10       3840     384.0   malloc in _RINvMs0_NtNtNtNtCsa9BKTri5B3M_3std3sys12thread_local6native4lazyINtB6_7StorageINtNtCslJsSqIQKwiA_5alloc2rc2RcINtNtCsgtPOCBgevO_4core4cell10UnsafeCellINtNtNtCs6LgU6r2B7vq_4rand4rngs9reseeding12ReseedingRngNtNtCsbB4IXSYHPeA_11rand_chacha6chacha12ChaCha12CoreNtNtCshmgHsZ7WMFq_9rand_core2os5OsRngEEEuE16get_or_init_slowNvNvNtB2s_6thread14THREAD_RNG_KEY27___rust_std_internal_init_fnEB2u_  C       defra-h3
+       9       4848     538.7   malloc in _RNvMsj_NtNtCsjBKoxp0uHp1_14regex_automata4meta5regexNtB5_7Builder5build  C       defra-h3
+       9       1872     208.0   malloc in _RNvMs0_NtCs66IWL1b9X5C_8wasmtime6engineNtB5_6Engine3new  C       defra-h3
+       8  151650304  18956288.0   malloc in _RINvMsa_NtCsjaNm7SIV05o_9hashbrown3rawNtB6_13RawTableInner17new_uninitializedNtNtNtNtCslTgW7p9fyGf_14allocator_api26stable5alloc6global6GlobalECs9iR7aollNW9_3cli  C       defra-h3
+       8       1280     160.0   malloc in _RNvMNtNtCs46KXby0LjjA_13futures_timer6native5delayNtB2_5Delay10new_handle  C       defra-h3
+       8        512      64.0   malloc in _RNvMs0_NtNtCsaySXeqeXrsJ_16hickory_resolver11name_server17name_server_stateNtB5_15NameServerState4init  C       defra-h3
+       8        384      48.0   malloc in _RNvXNtNtCsaySXeqeXrsJ_16hickory_resolver11name_server17name_server_statsNtB2_15NameServerStatsNtNtCsgtPOCBgevO_4core7default7Default7default  C       defra-h3
+       7       2496     356.6   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtNtNtCsjBKoxp0uHp1_14regex_automata4util11determinize5state5StateNtNtNtBY_6hybrid2id11LazyStateIDEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1W_NtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0EBY_  C       defra-h3
+       7        928     132.6   malloc in _RNvMNtCslJsSqIQKwiA_5alloc5allocNtB2_6Global18alloc_impl_runtimeCsfn5zBtVOZUo_7storage  C       defra-h3
+       7        784     112.0   malloc in _RINvMs5_NtNtCsjBKoxp0uHp1_14regex_automata4util8capturesNtB6_9GroupInfo3newINtNtNtNtCsgtPOCBgevO_4core4iter8adapters3map3MapINtNtNtB1k_5slice4iter4IterINtNtCslJsSqIQKwiA_5alloc3vec3VecINtNtB1k_6option6OptionINtNtB2u_4sync3ArceEEEENCNvMs0_NtNtNtBa_3nfa8thompson3nfaNtB3O_5Inner12set_captures0EIB1c_IB1Z_B2W_ENCNCB3I_00ERB3j_EBa_  C       defra-h3
+       6       5376     896.0   malloc in _RNvMs_NtCsfRHfbq1AK39_13kovan_channel8waitlistNtB4_8WaitList8register  C       defra-h3
+       6       2208     368.0   xpc_string_t (Storage)                            C       libxpc.dylib
+       6       1920     320.0   malloc in _RNvXs1b_NtCslJsSqIQKwiA_5alloc4syncINtB6_3ArcSNtNtNtCsfoGduOfC5m1_13hickory_proto2rr8resource6RecordEINtNtCsgtPOCBgevO_4core7convert4FromINtNtB8_3vec3VecBI_EE4fromCsaySXeqeXrsJ_16hickory_resolver  C       defra-h3
+       6        864     144.0   malloc in _RNvMs4_NtNtCsjBKoxp0uHp1_14regex_automata4meta5regexNtB5_9RegexInfo3new  C       defra-h3
+       6        576      96.0   malloc in _RNvNtCslJsSqIQKwiA_5alloc5boxed14box_new_uninit  C       defra-h3
+       6        544      90.7   malloc in _RNvMs0_NtCsaySXeqeXrsJ_16hickory_resolver7dns_lruNtB5_6DnsLru3new  C       defra-h3
+       6        416      69.3   malloc in _RNvCshfS8l98Rwgh_10libp2p_tls18make_client_config  C       defra-h3
+       6        416      69.3   malloc in _RNvCshfS8l98Rwgh_10libp2p_tls18make_server_config  C       defra-h3
+       6        384      64.0   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCs9LVuaz3ghpR_9multiaddr  C       defra-h3
+       6        352      58.7   malloc in _RNvMs0_NtNtCsaNl2KloY54Y_6rustls6client7builderINtNtB9_7builder13ConfigBuilderNtNtB7_11client_conn12ClientConfigNtB5_15WantsClientCertE25with_client_cert_resolver  C       defra-h3
+       6        288      48.0   malloc in _RNvMsk_NtCslJsSqIQKwiA_5alloc4syncINtB5_3ArcINtNtB7_3vec3VechEE17clone_from_ref_inCs9LVuaz3ghpR_9multiaddr  C       defra-h3
+       6        288      48.0   xpc_string_t                                      ObjC    libxpc.dylib
+       6        224      37.3   malloc in _RNvXsa_NtCslJsSqIQKwiA_5alloc3vecINtB5_3VecIBw_hEENtNtCsgtPOCBgevO_4core5clone5Clone5cloneCsdrpy9YAzJIq_12aho_corasick  C       defra-h3
+       5      32256    6451.2   malloc in _RNvMs0_NtCsZ1Wrgv7jPa_11kovan_queue11array_queueINtB5_10ArrayQueueNtNtNtCshiuf5WXvxYg_8regolith6engine5arena11ChunkHandleE3newB18_  C       defra-h3
+       5       4480     896.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCsiI87CauE6wd_12libp2p_swarm15stream_protocol14StreamProtocoluEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_uNtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0EBU_  C       defra-h3
+       5        608     121.6   Swift.StringStorage                               Swift   libswiftCore.dylib
+       5        416      83.2   malloc_with_options_outlined in cache_t::insert(objc_selector*, void (*)(), objc_object*)  C++     libobjc.A.dylib
+       4       5152    1288.0   malloc in _RNvMs3_NtCsdrpy9YAzJIq_12aho_corasick3dfaNtB5_7Builder24build_from_noncontiguous  C       defra-h3
+       4       3584     896.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTINtNtCs7oc5W8EkOYB_3cid3cid3CidKj40_ENtNtNtCshdLnojl1P5v_12iroh_bitswap6client8wantlist5EntryEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1r_NtNtCsjvVDUHGOFe5_5ahash12random_state11RandomStateE0EB1x_  C       defra-h3
+       4       1664     416.0   malloc in _RNvMs2_NtNtCs5C8QQQtCMlN_4moka4sync10base_cacheINtB5_9BaseCacheNtNtNtCsfoGduOfC5m1_13hickory_proto2op5query5QueryNtNtCsaySXeqeXrsJ_16hickory_resolver7dns_lru8LruValueE3newB1R_  C       defra-h3
+       4       1632     408.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCs7gjEcJyChAZ_10libp2p_kad  C       defra-h3
+       4       1184     296.0   malloc in _RNvMs4_NtNtCslELWElZSFsM_12futures_util6stream17futures_unorderedINtB5_16FuturesUnorderedINtNtNtB7_6stream11into_future12StreamFutureNtNtCs7gjEcJyChAZ_10libp2p_kad7handler21InboundSubstreamStateEE3newB2b_  C       defra-h3
+       4        768     192.0   malloc in _RNvMNtNtCsiI87CauE6wd_12libp2p_swarm9behaviour14peer_addressesNtB2_13PeerAddresses3add  C       defra-h3
+       4        720     180.0   malloc in _RINvXsb_NtNtCslJsSqIQKwiA_5alloc5boxed4iterINtB8_3BoxSINtCs1g81SpcJmV6_12thread_local5EntryINtNtCsgtPOCBgevO_4core4cell7RefCellNtNtNtCs2PG7zt2CiYY_18tracing_subscriber8registry5stack9SpanStackEEEINtNtNtNtB1w_4iter6traits7collect12FromIteratorBQ_E9from_iterINtNtNtB3e_8adapters3map3MapINtNtNtB1w_3ops5range5RangejENCINvBT_15allocate_bucketB1r_E0EEB27_  C       defra-h3
+       4        576     144.0   calloc in color_space_state_create_icc_with_profile  C       CoreGraphics
+       4        480     120.0   CGColor                                           CFType  CoreGraphics
+       4        480     120.0   malloc in _RNvMNtNtCshiuf5WXvxYg_8regolith6engine10compactionNtB2_19CompactionScheduler5start  C       defra-h3
+       4        448     112.0   CGColorSpace                                      CFType  CoreGraphics
+       4        384      96.0   malloc in _RNvMs4_NtNtCslELWElZSFsM_12futures_util6stream17futures_unorderedINtB5_16FuturesUnorderedINtNtCsi1Od6cyV6PD_15futures_bounded11futures_map12TaggedFuturemINtB1s_13TimeoutFutureINtNtCsgtPOCBgevO_4core3pin3PinINtNtCslJsSqIQKwiA_5alloc5boxed3BoxDNtNtNtB2S_6future6future6Futurep6OutputINtNtB2S_6result6ResultINtNtB2S_6option6OptionNtNtCs7gjEcJyChAZ_10libp2p_kad8protocol14KadResponseMsgENtNtNtCsa9BKTri5B3M_3std2io5error5ErrorENtNtB2S_6marker4SendEL_EEEEE3newB5j_  C       defra-h3
+       4        384      96.0   malloc in _RNvMs5_Csh2TaUmuXT8C_14event_listenerNtB5_5Event5innerCs6fDaH1Qlw8X_16libp2p_gossipsub  C       defra-h3
+       4        352      88.0   malloc in _RNvMs4_NtNtCslELWElZSFsM_12futures_util6stream17futures_unorderedINtB5_16FuturesUnorderedINtNtNtB7_6stream11into_future12StreamFutureINtNtCsgtPOCBgevO_4core3pin3PinINtNtCslJsSqIQKwiA_5alloc5boxed3BoxDNtNtCsdEOLFxP5L7t_12futures_core6stream6Streamp4ItemINtNtCsiI87CauE6wd_12libp2p_swarm7handler22ConnectionHandlerEventNtNtCshdLnojl1P5v_12iroh_bitswap8protocol14ProtocolConfigTNtNtB59_7message14BitswapMessageINtNtNtCskiVOz4vPCKK_5tokio4sync7oneshot6SenderINtNtB2c_6result6ResultuNtNtB59_7network9SendErrorEEENtNtB59_7handler12HandlerEventENtNtB2c_6marker4SendEL_EEEE3newB59_  C       defra-h3
+       4        352      88.0   malloc in _RNvNtNtCsaNl2KloY54Y_6rustls6crypto4ring16default_provider  C       defra-h3
+       4        320      80.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecINtB5_11RawVecInnerNtNtCsa9BKTri5B3M_3std5alloc6SystemE11finish_growBW_  C       defra-h3
+       4        256      64.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtCs9LVuaz3ghpR_9multiaddr9MultiaddruEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_uNtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0ECsiI87CauE6wd_12libp2p_swarm  C       defra-h3
+       4        256      64.0   malloc in _RINvMsa_NtCscZRXvym5nTA_9hashbrown3rawNtB6_13RawTableInner14prepare_resizeNtNtNtNtCslTgW7p9fyGf_14allocator_api26stable5alloc6global6GlobalECsiI87CauE6wd_12libp2p_swarm  C       defra-h3
+       4        256      64.0   malloc in _RNvMNtCshfS8l98Rwgh_10libp2p_tls11certificateNtB2_18AlwaysResolvesCert3new  C       defra-h3
+       4        224      56.0   malloc in _RNvMs1_NtNtCsdrpy9YAzJIq_12aho_corasick6packed3apiNtB5_7Builder5build  C       defra-h3
+       4        208      52.0   malloc in _RNvMs_NtNtCsaNl2KloY54Y_6rustls6server7builderINtNtB8_7builder13ConfigBuilderNtNtB6_11server_conn12ServerConfigNtB4_15WantsServerCertE18with_cert_resolver  C       defra-h3
+       4        192      48.0   NSMutableDictionary                               ObjC    CoreFoundation
+       4        128      32.0   malloc in _RNvMs0_NtCsiSpJAxWbsqx_8hashlink9lru_cacheINtB5_8LruCacheNtCs9LVuaz3ghpR_9multiaddr9MultiaddruE6insertCsiI87CauE6wd_12libp2p_swarm  C       defra-h3
+       3      43008   14336.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc5blockINtB2_5BlockNtNtNtCsb9wnD8JyU9u_3p2p4host7command11HostCommandE3newB10_  C       defra-h3
+       3      14336    4778.7   malloc in _RNvNtNtCsjBKoxp0uHp1_14regex_automata4meta8strategy3new  C       defra-h3
+       3       2592     864.0   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCsbtulRcdZyY5_5bytes  C       defra-h3
+       3       1312     437.3   malloc in _RNvMNtNtCsjBKoxp0uHp1_14regex_automata4util9prefilterNtB2_9Prefilter11from_choice  C       defra-h3
+       3       1280     426.7   ColorSyncProfile                                  CFType  ColorSync
+       3       1152     384.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCsiI87CauE6wd_12libp2p_swarm10connection12ConnectionIdNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1M_NtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0ECslNj5JMRR18L_13libp2p_stream  C       defra-h3
+       3        672     224.0   malloc in cacheCanonicalSpecializedMetadata(swift::TargetTypeContextDescriptor<swift::InProcess> const*, long*)::$_0::__invoke(void*)  C++     libswiftCore.dylib
+       3        640     213.3   NSMutableDictionary (Storage)                     C       CoreFoundation
+       3        496     165.3   malloc in _RNvXs_NtCsjoIIX9a3dEV_11libp2p_quic6configNtB4_11QuinnConfigINtNtCsgtPOCBgevO_4core7convert4FromNtB4_6ConfigE4from  C       defra-h3
+       3        480     160.0   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCsa9BKTri5B3M_3std  C       defra-h3
+       3        400     133.3   malloc in _RINvNtCs9jpoUk1Tm5t_15futures_channel4mpsc7channelNtNtNtCs4ksk0j40545_12libp2p_relay11priv_client9transport23TransportToBehaviourMsgEBS_  C       defra-h3
+       3        288      96.0   malloc in _RINvMsn_NtCsbXXwPqIggh8_12regex_syntax3hirNtB6_10Properties5unionRINtNtCslJsSqIQKwiA_5alloc3vec3VecBE_ERBE_ECsjBKoxp0uHp1_14regex_automata  C       defra-h3
+       3        288      96.0   malloc in _RINvNtCs9jpoUk1Tm5t_15futures_channel4mpsc7channelNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdECslNj5JMRR18L_13libp2p_stream  C       defra-h3
+       3        240      80.0   malloc in _RNvMNtCs7jJdUQNAEmZ_15libp2p_identity7ed25519NtB2_7Keypair4sign  C       defra-h3
+       3        240      80.0   malloc in _RNvMsq_NtCslJsSqIQKwiA_5alloc4syncINtB5_3ArcShE15copy_from_sliceCslcNfFAJRlyM_5regex  C       defra-h3
+       3        224      74.7   malloc in _RNvMNtCslJsSqIQKwiA_5alloc5allocNtB2_6Global18alloc_impl_runtimeCsdTiumnWUhdm_6events  C       defra-h3
+       3        192      64.0   Swift._ContiguousArrayStorage<Swift.UInt8>        Swift   libswiftCore.dylib
+       3        192      64.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCsiI87CauE6wd_12libp2p_swarm10connection12ConnectionIduEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_uNtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0ECs9DC6KIqwZ4v_24libp2p_connection_limits  C       defra-h3
+       3        176      58.7   calloc in swift::ConcurrentReadableHashMap<swift::HashMapElementWrapper<swift::GenericCacheEntry>, swift::Mutex>::resize(swift::ConcurrentReadableHashMap<swift::HashMapElementWrapper<swift::GenericCacheEntry>, swift::Mutex>::IndexStorage, unsigned char, swift::HashMapElementWrapper<swift::GenericCacheEntry>*)  C++     libswiftCore.dylib
+       3        160      53.3   malloc in _RNvMNtNtCsjBKoxp0uHp1_14regex_automata4util8capturesNtB2_8Captures3all  C       defra-h3
+       3        144      48.0   malloc in _RNvMCs9LVuaz3ghpR_9multiaddrNtB2_9Multiaddr5empty  C       defra-h3
+       3        144      48.0   malloc in _RNvMNtCs1gqRzZTamtk_16parking_lot_core11parking_lotNtB2_9HashTable3new  C       defra-h3
+       3         48      16.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCs9LVuaz3ghpR_9multiaddr  C       defra-h3
+       2     165120   82560.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCs8tt2sI1k3bY_4axum7routing7RouteIdINtBS_8EndpointuEEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1t_NtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0EBU_  C       defra-h3
+       2      40960   20480.0   malloc in _RINvXsb_NtNtCslJsSqIQKwiA_5alloc5boxed4iterINtB8_3BoxSINtNtNtCsjI3qm4sAoy2_17crossbeam_channel7flavors5array4SlotINtNtNtCs5C8QQQtCMlN_4moka6common10concurrent7WriteOpNtNtNtCsfoGduOfC5m1_13hickory_proto2op5query5QueryNtNtCsaySXeqeXrsJ_16hickory_resolver7dns_lru8LruValueEEEINtNtNtNtCsgtPOCBgevO_4core4iter6traits7collect12FromIteratorBQ_E9from_iterINtNtNtB4t_8adapters3map3MapINtNtNtB4v_3ops5range5RangejENCNvMs_BT_INtBT_7ChannelB1N_E13with_capacity0EEB3w_  C       defra-h3
+       2      40960   20480.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc5blockINtB2_5BlockNtNtNtCsb9wnD8JyU9u_3p2p4host5event9HostEventE3newCsl21FAGs3kuF_5defra  C       defra-h3
+       2      28992   14496.0   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCshiuf5WXvxYg_8regolith  C       defra-h3
+       2      28672   14336.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc5blockINtB2_5BlockNtNtNtCsb9wnD8JyU9u_3p2p10two_stream5event14TwoStreamEventE3newB10_  C       defra-h3
+       2      28672   14336.0   malloc in _RNvMs_NtCs9nAj5kJTqSU_9hashbrown3mapINtB4_7HashMapNtNtCsaJa4oElmsv3_16rustls_pki_types11server_name10ServerNameNtNtNtNtCsaNl2KloY54Y_6rustls6client5handy5cache10ServerDataNtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE24with_capacity_and_hasherB1T_  C       defra-h3
+       2      24576   12288.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc5blockINtB2_5BlockNtNtNtNtCsb9wnD8JyU9u_3p2p4sync7manager6events9SyncEventE3newCsl21FAGs3kuF_5defra  C       defra-h3
+       2      20480   10240.0   malloc in _RINvXsb_NtNtCslJsSqIQKwiA_5alloc5boxed4iterINtB8_3BoxSINtNtNtCsjI3qm4sAoy2_17crossbeam_channel7flavors5array4SlotINtNtNtCs5C8QQQtCMlN_4moka6common10concurrent6ReadOpNtNtNtCsfoGduOfC5m1_13hickory_proto2op5query5QueryNtNtCsaySXeqeXrsJ_16hickory_resolver7dns_lru8LruValueEEEINtNtNtNtCsgtPOCBgevO_4core4iter6traits7collect12FromIteratorBQ_E9from_iterINtNtNtB4s_8adapters3map3MapINtNtNtB4u_3ops5range5RangejENCNvMs_BT_INtBT_7ChannelB1N_E13with_capacity0EEB3v_  C       defra-h3
+       2      20480   10240.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc5blockINtB2_5BlockTNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdNtNtCshdLnojl1P5v_12iroh_bitswap7message14BitswapMessageEE3newCsl21FAGs3kuF_5defra  C       defra-h3
+       2       7168    3584.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc5blockINtB2_5BlockINtNtCs7oc5W8EkOYB_3cid3cid3CidKj40_EE3newCsl21FAGs3kuF_5defra  C       defra-h3
+       2       6144    3072.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc5blockINtB2_5BlockNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdE3newCsl21FAGs3kuF_5defra  C       defra-h3
+       2       5136    2568.0   calloc in nw::object::class_def::register_method_def(nw::object::class_def::method_def const&, void (nw::object::*)())  C++     Network
+       2       5136    2568.0   calloc in nw::object::class_def::setup(std::deque<void (nw::object::*)(), nw::c_allocator<void (nw::object::*)()>>&)  C++     Network
+       2       5120    2560.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc5blockINtB2_5BlockNtNtNtCshdLnojl1P5v_12iroh_bitswap6client13message_queue11WantsUpdateE3newCsl21FAGs3kuF_5defra  C       defra-h3
+       2       3584    1792.0   malloc in _RINvXNtNtCslJsSqIQKwiA_5alloc3vec14spec_from_elemINtB5_3VecTjNtNtNtCsdrpy9YAzJIq_12aho_corasick4util10primitives9PatternIDEENtB3_12SpecFromElem9from_elemNtNtB7_5alloc6GlobalEB13_  C       defra-h3
+       2       3072    1536.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtNtNtCsfoGduOfC5m1_13hickory_proto2rr6domain4name4NameNtNtCsaySXeqeXrsJ_16hickory_resolver5hosts10LookupTypeEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1L_NtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0EB1P_  C       defra-h3
+       2       2560    1280.0   malloc in _RNvMNtNtCs5C8QQQtCMlN_4moka3cht7segmentINtB2_7HashMapINtNtCslJsSqIQKwiA_5alloc4sync3ArcNtNtNtCsfoGduOfC5m1_13hickory_proto2op5query5QueryEINtNtNtNtB6_6common10concurrent3arc7MiniArcINtB2h_10ValueEntryB1n_NtNtCsaySXeqeXrsJ_16hickory_resolver7dns_lru8LruValueEEE37with_num_segments_capacity_and_hasherB3k_  C       defra-h3
+       2       2560    1280.0   malloc in _RNvMNtNtCs5C8QQQtCMlN_4moka3cht7segmentINtB2_7HashMapTINtNtCslJsSqIQKwiA_5alloc4sync3ArcNtNtNtCsfoGduOfC5m1_13hickory_proto2op5query5QueryENtNtCsgtPOCBgevO_4core3any6TypeIdEINtNtNtNtB6_6common10concurrent3arc7MiniArcINtNtCscGxbJvKGPdT_8lock_api6rwlock6RwLockNtNtCsgzxlrx6KLaP_11parking_lot10raw_rwlock9RawRwLockINtNtNtB6_4sync17value_initializer11WaiterValueNtNtCsaySXeqeXrsJ_16hickory_resolver7dns_lru8LruValueEEEE37with_num_segments_capacity_and_hasherB5O_  C       defra-h3
+       2       2560    1280.0   malloc in _RNvMs_NtCsaNl2KloY54Y_6rustls13limited_cacheINtB4_12LimitedCacheNtNtCsaJa4oElmsv3_16rustls_pki_types11server_name10ServerNameNtNtNtNtB6_6client5handy5cache10ServerDataE3newB6_  C       defra-h3
+       2       1792     896.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc5blockINtB2_5BlockINtNtCslJsSqIQKwiA_5alloc3vec3VecINtNtCs7oc5W8EkOYB_3cid3cid3CidKj40_EEE3newCsl21FAGs3kuF_5defra  C       defra-h3
+       2       1280     640.0   malloc in _RNvXNtNtCs8oRPQr0HKtt_4snow9resolvers4ringNtB2_12RingResolverNtB4_14CryptoResolver14resolve_cipher  C       defra-h3
+       2       1088     544.0   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCs46KXby0LjjA_13futures_timer  C       defra-h3
+       2       1024     512.0   CFDictionary (Key Storage)                        C       CoreFoundation
+       2       1024     512.0   CFDictionary (Value Storage)                      C       CoreFoundation
+       2       1024     512.0   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCsaySXeqeXrsJ_16hickory_resolver  C       defra-h3
+       2        768     384.0   Swift._ContiguousArrayStorage<Swift.String>       Swift   libswiftCore.dylib
+       2        768     384.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCsaySXeqeXrsJ_16hickory_resolver  C       defra-h3
+       2        768     384.0   malloc in _RNvMs6_NtNtNtNtCsdrpy9YAzJIq_12aho_corasick6packed5teddy7builder7aarch64INtB5_8SlimNeonKj4_E3new  C       defra-h3
+       2        640     320.0   malloc in _RNvMs4_NtNtNtCsaNl2KloY54Y_6rustls6crypto4ring4signNtB5_15EcdsaSigningKey3new  C       defra-h3
+       2        544     272.0   malloc in _RNvMs2_NtCs2Bvt3afTmpg_16libp2p_websocket3tlsNtB5_6Config6client  C       defra-h3
+       2        512     256.0   malloc in _RNvMNtCs6fDaH1Qlw8X_16libp2p_gossipsub3rpcNtB2_6Sender12new_receiver  C       defra-h3
+       2        512     256.0   malloc in _RNvMs1_NtNtCs9jpoUk1Tm5t_15futures_channel4mpsc5queueINtB5_5QueueTNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdNtNtCsiI87CauE6wd_12libp2p_swarm6stream6StreamEE4pushCslNj5JMRR18L_13libp2p_stream  C       defra-h3
+       2        448     224.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCslJsSqIQKwiA_5alloc6string6StringuEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_uNtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0ECs6BY7faCUK1r_4bm25  C       defra-h3
+       2        384     192.0   malloc in _RNvMNtCskiVOz4vPCKK_5tokio6signalNtB2_8RxFuture3new  C       defra-h3
+       2        256     128.0   malloc in _RNvMs0_NtCshiuf5WXvxYg_8regolith6engineNtB5_14RegolithEngine4open  C       defra-h3
+       2        256     128.0   malloc in _RNvMs0_NtNtCshiuf5WXvxYg_8regolith6engine8memtableNtB5_8MemTable3new  C       defra-h3
+       2        256     128.0   malloc in _RNvMs_NtNtCsaNl2KloY54Y_6rustls6client11client_connNtB4_10Resumption18in_memory_sessions  C       defra-h3
+       2        240     120.0   malloc in _RNvMs4_NtNtCslELWElZSFsM_12futures_util6stream17futures_unorderedINtB5_16FuturesUnorderedINtNtNtB7_6stream11into_future12StreamFutureNtNtNtCs4ksk0j40545_12libp2p_relay11priv_client9transport8ListenerEE3newB2d_  C       defra-h3
+       2        224     112.0   NSURL                                             ObjC    CoreFoundation
+       2        224     112.0   malloc in _RNvXsa_NtCslJsSqIQKwiA_5alloc3vecINtB5_3VecNtNtCs6fDaH1Qlw8X_16libp2p_gossipsub8protocol10ProtocolIdENtNtCsgtPOCBgevO_4core5clone5Clone5cloneBJ_  C       defra-h3
+       2        224     112.0   malloc in __CGTypeRegisterInternal                C       CoreGraphics
+       2        208     104.0   CFString                                          ObjC    CoreFoundation
+       2        208     104.0   malloc in _RNvMs16_NtCsa9BKTri5B3M_3std4pathNtB6_4Path11to_path_buf  C       defra-h3
+       2        192      96.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCsiI87CauE6wd_12libp2p_swarm10connection12ConnectionIdNtCs9LVuaz3ghpR_9multiaddr9MultiaddrEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1M_NtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0ECs7o977r3tZRs_15libp2p_identify  C       defra-h3
+       2        192      96.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTmNtNtCs7gjEcJyChAZ_10libp2p_kad5query7QueryIdEE14reserve_rehashNCINvNtB8_3map11make_hashermBR_NtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0EBV_  C       defra-h3
+       2        192      96.0   malloc in _RINvNtNtCsa9BKTri5B3M_3std6thread9lifecycle15spawn_uncheckedNCNvMNtNtCs46KXby0LjjA_13futures_timer6native6globalNtB11_12HelperThread3new0uEB15_  C       defra-h3
+       2        192      96.0   malloc in _RNvMs4_NtNtCslELWElZSFsM_12futures_util6stream17futures_unorderedINtB5_16FuturesUnorderedINtNtCsi1Od6cyV6PD_15futures_bounded11futures_map12TaggedFuturemINtB1s_13TimeoutFutureINtNtCsgtPOCBgevO_4core3pin3PinINtNtCslJsSqIQKwiA_5alloc5boxed3BoxDNtNtNtB2S_6future6future6Futurep6OutputINtNtB2S_6result6ResultNtNtCs7o977r3tZRs_15libp2p_identify7handler7SuccessNtNtB4W_8protocol12UpgradeErrorENtNtB2S_6marker4SendEL_EEEEE3newB4W_  C       defra-h3
+       2        192      96.0   malloc in _RNvMs4_NtNtCslELWElZSFsM_12futures_util6stream17futures_unorderedINtB5_16FuturesUnorderedINtNtCsi1Od6cyV6PD_15futures_bounded11futures_map12TaggedFuturemINtB1s_13TimeoutFutureINtNtCsgtPOCBgevO_4core3pin3PinINtNtCslJsSqIQKwiA_5alloc5boxed3BoxDNtNtNtB2S_6future6future6Futurep6OutputINtNtB2S_6result6ResultNtNtNtCs4ksk0j40545_12libp2p_relay8protocol12inbound_stop7CircuitNtB4U_5ErrorENtNtB2S_6marker4SendEL_EEEEE3newB4Y_  C       defra-h3
+       2        192      96.0   malloc in _RNvMs4_NtNtCslELWElZSFsM_12futures_util6stream17futures_unorderedINtB5_16FuturesUnorderedINtNtCsi1Od6cyV6PD_15futures_bounded11futures_map12TaggedFuturemINtB1s_13TimeoutFutureINtNtCsgtPOCBgevO_4core3pin3PinINtNtCslJsSqIQKwiA_5alloc5boxed3BoxDNtNtNtB2S_6future6future6Futurep6OutputINtNtB2S_6result6ResultNtNtNtCs4ksk0j40545_12libp2p_relay8protocol12outbound_hop11ReservationNtB4U_12ReserveErrorENtNtB2S_6marker4SendEL_EEEEE3newB4Y_  C       defra-h3
+       2        192      96.0   malloc in _RNvMs4_NtNtCslELWElZSFsM_12futures_util6stream17futures_unorderedINtB5_16FuturesUnorderedINtNtCsi1Od6cyV6PD_15futures_bounded11futures_map12TaggedFuturemINtB1s_13TimeoutFutureINtNtCsgtPOCBgevO_4core3pin3PinINtNtCslJsSqIQKwiA_5alloc5boxed3BoxDNtNtNtB2S_6future6future6Futurep6OutputINtNtB2S_6result6ResultNtNtNtCs4ksk0j40545_12libp2p_relay8protocol12outbound_hop7CircuitNtB4U_12ConnectErrorENtNtB2S_6marker4SendEL_EEEEE3newB4Y_  C       defra-h3
+       2        192      96.0   malloc in _RNvMs4_NtNtCslELWElZSFsM_12futures_util6stream17futures_unorderedINtB5_16FuturesUnorderedINtNtCsi1Od6cyV6PD_15futures_bounded11futures_map12TaggedFuturemINtB1s_13TimeoutFutureINtNtCsgtPOCBgevO_4core3pin3PinINtNtCslJsSqIQKwiA_5alloc5boxed3BoxDNtNtNtB2S_6future6future6Futurep6OutputINtNtB2S_6result6ResultuNtNtNtCs4ksk0j40545_12libp2p_relay8protocol12inbound_stop5ErrorENtNtB2S_6marker4SendEL_EEEEE3newB4Z_  C       defra-h3
+       2        192      96.0   malloc in _RNvMs8_NtCskxf4T89SWs4_11quinn_proto6configNtB5_12ClientConfig3new  C       defra-h3
+       2        192      96.0   xpc_dictionary_t                                  ObjC    libxpc.dylib
+       2        176      88.0   malloc in _RINvNtCs9jpoUk1Tm5t_15futures_channel4mpsc7channelNtNtCslNj5JMRR18L_13libp2p_stream7handler9NewStreamEBQ_  C       defra-h3
+       2        176      88.0   malloc in _RNvMNtCslJsSqIQKwiA_5alloc5allocNtB2_6Global18alloc_impl_runtimeCs3nyt47Z7Pg2_17defra_p2p_adapter  C       defra-h3
+       2        160      80.0   CFDictionary                                      ObjC    CoreFoundation
+       2        160      80.0   malloc in _RNvXsX_NtCslJsSqIQKwiA_5alloc4syncINtB5_3ArcINtNtNtNtCsa9BKTri5B3M_3std11collections4hash3set7HashSettEENtNtCsgtPOCBgevO_4core7default7Default7defaultCsaySXeqeXrsJ_16hickory_resolver  C       defra-h3
+       2        128      64.0   malloc in _RINvNtNtCsa9BKTri5B3M_3std6thread9lifecycle15spawn_uncheckedINtNtCslJsSqIQKwiA_5alloc5boxed3BoxDINtNtNtCsgtPOCBgevO_4core3ops8function6FnOnceuEp6OutputuNtNtB1D_6marker4SendEL_EuECshiuf5WXvxYg_8regolith  C       defra-h3
+       2        128      64.0   malloc in _RINvXNtNtCslJsSqIQKwiA_5alloc3vec14spec_from_elemINtB5_3VecNtNtNtCsdrpy9YAzJIq_12aho_corasick4util10primitives9PatternIDENtB3_12SpecFromElem9from_elemNtNtB7_5alloc6GlobalEB11_  C       defra-h3
+       2        128      64.0   malloc in _RNvMNtCsjoIIX9a3dEV_11libp2p_quic6configNtB2_6Config3new  C       defra-h3
+       2        128      64.0   malloc in _RNvMs1_NtNtCs9jpoUk1Tm5t_15futures_channel4mpsc5queueINtB5_5QueueNtNtCs7soJhesfTZO_5yamux10connection13StreamCommandE4pushB15_  C       defra-h3
+       2        128      64.0   malloc in _RNvMs5_Csh2TaUmuXT8C_14event_listenerNtB5_5Event6listenCs6fDaH1Qlw8X_16libp2p_gossipsub  C       defra-h3
+       2        128      64.0   pthread_cond_t                                    C       libpthread.dylib
+       2         96      48.0   malloc in _RNCINvMs0_NtNtCsa9BKTri5B3M_3std4sync4onceNtB8_4Once15call_once_forceNCINvMNtBa_9once_lockINtB1b_8OnceLockINtNtCsgtPOCBgevO_4core6result6ResultuINtNtB1L_6option6OptionlEEE10initializeNCINvB1a_11get_or_initNCNvNtNtCskiVOz4vPCKK_5tokio6signal4unix13signal_enable0E0zE0E0B3p_  C       defra-h3
+       2         96      48.0   malloc in _RNvMNtCsbtulRcdZyY5_5bytes9bytes_mutNtB2_8BytesMut17promote_to_shared  C       defra-h3
+       2         96      48.0   malloc in _RNvMNtNtCs46KXby0LjjA_13futures_timer6native6globalNtB2_12HelperThread3new  C       defra-h3
+       2         96      48.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCs4ksk0j40545_12libp2p_relay  C       defra-h3
+       2         96      48.0   malloc in _RNvNtNtNtCsaNl2KloY54Y_6rustls6crypto4ring4sign14any_ecdsa_type  C       defra-h3
+       2         96      48.0   malloc in _RNvXsb_Cs9LVuaz3ghpR_9multiaddrNtB5_9MultiaddrINtNtCsgtPOCBgevO_4core7convert7TryFromINtNtCslJsSqIQKwiA_5alloc3vec3VechEE8try_from  C       defra-h3
+       2         96      48.0   malloc in color_space_state_create_icc_with_profile  C       CoreGraphics
+       2         96      48.0   malloc in swift::ConcurrentReadableHashMap<swift::HashMapElementWrapper<swift::GenericCacheEntry>, swift::Mutex>::getOrInsertExternallyLocked<swift::MetadataCacheKey, std::pair<swift::GenericCacheEntry*, bool> swift::StableAddressConcurrentReadableHashMap<swift::GenericCacheEntry, swift::TaggedMetadataAllocator<(unsigned short)14>, swift::Mutex>::getOrInsert<swift::MetadataCacheKey, swift::MetadataWaitQueue::Worker&, swift::MetadataRequest&, swift::TargetTypeContextDescriptor<swift::InProcess> const*&, void const* const*&>(swift::MetadataCacheKey, swift::MetadataWaitQueue::Worker&, swift::MetadataRequest&, swift::TargetTypeContextDescriptor<swift::InProcess> const*&, void const* const*&)::'lambda'(swift::HashMapElementWrapper<swift::GenericCacheEntry>*, bool)>(swift::MetadataCacheKey, std::pair<swift::GenericCacheEntry*, bool> swift::StableAddressConcurrentReadableHashMap<swift::GenericCacheEntry, swift::TaggedMetadataAllocator<(unsigned short)14>, swift::Mutex>::getOrInsert<swift::MetadataCacheKey, swift::MetadataWaitQueue::Worker&, swift::MetadataRequest&, swift::TargetTypeContextDescriptor<swift::InProcess> const*&, void const* const*&>(swift::MetadataCacheKey, swift::MetadataWaitQueue::Worker&, swift::MetadataRequest&, swift::TargetTypeContextDescriptor<swift::InProcess> const*&, void const* const*&)::'lambda'(swift::HashMapElementWrapper<swift::GenericCacheEntry>*, bool) const&)  C++     libswiftCore.dylib
+       2         64      32.0   malloc in _RNvMNtNtCsaNl2KloY54Y_6rustls6client11client_connNtB2_12ClientConfig21builder_with_provider  C       defra-h3
+       2         64      32.0   malloc in _RNvMs1_NtNtCs9jpoUk1Tm5t_15futures_channel4mpsc5queueINtB5_5QueueINtNtCslJsSqIQKwiA_5alloc4sync3ArcINtNtNtNtCsa9BKTri5B3M_3std4sync6poison5mutex5MutexNtB7_10SenderTaskEEE4pushCslNj5JMRR18L_13libp2p_stream  C       defra-h3
+       2         64      32.0   malloc in _RNvMs2_NtCs7gjEcJyChAZ_10libp2p_kad8protocolNtB5_14ProtocolConfig3new  C       defra-h3
+       2         48      24.0   malloc in _RINvMs1_NtNtCsdJBXq2PLjDQ_9once_cell4race8once_boxINtB6_7OnceBoxINtNtCslJsSqIQKwiA_5alloc5boxed3BoxDNtNtCsjvVDUHGOFe5_5ahash12random_state12RandomSourceNtNtCsgtPOCBgevO_4core6marker4SyncNtB2s_4SendEL_EE4initNtNvMs1_B6_IBN_pE11get_or_init4VoidNCINvB2_11get_or_initNCNvB1C_7get_src0E0ECs6BY7faCUK1r_4bm25  C       defra-h3
+       2         48      24.0   malloc in _RNvXsf_NtNtCs5oXR5A0o0sI_12clap_builder7builder12value_parserNtB5_17StringValueParserNtB5_16TypedValueParser9parse_ref  C       defra-h3
+       2         32      16.0   malloc in _RNvXNtNtCs7o977r3tZRs_15libp2p_identify5proto7structsNtB2_8IdentifyNtNtCsf9fJ0xYGTi6_14quick_protobuf7message11MessageRead11from_reader  C       defra-h3
+       2         32      16.0   malloc in _RNvXs_NtNtCshiuf5WXvxYg_8regolith3env7std_envNtB4_6StdEnvNtB6_3Env10open_write  C       defra-h3
+       1     589824  589824.0   malloc in _RNvMNtCs8Y5zbYsh0Fu_16concurrent_queue7boundedINtB2_7BoundedNtNtCs6fDaH1Qlw8X_16libp2p_gossipsub5types6RpcOutE3newB10_  C       defra-h3
+       1     311296  311296.0   malloc in _RINvCs91N3lye1REY_13async_channel7boundedNtNtCshdLnojl1P5v_12iroh_bitswap7network8OutEventEBH_  C       defra-h3
+       1      49152   49152.0   malloc in _RNvMNtNtCsq1cnEoPJ38_3mio5event6eventsNtB2_6Events13with_capacity  C       defra-h3
+       1      49152   49152.0   malloc in _RNvXNtNtCs2PG7zt2CiYY_18tracing_subscriber8registry7shardedNtB2_8RegistryNtNtCsgtPOCBgevO_4core7default7Default7default  C       defra-h3
+       1      28672   28672.0   malloc in _RNvMs_NtCs9nAj5kJTqSU_9hashbrown3mapINtB4_7HashMapINtNtCslJsSqIQKwiA_5alloc3vec3VechEBM_NtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE24with_capacity_and_hasherCsaNl2KloY54Y_6rustls  C       defra-h3
+       1      10240   10240.0   malloc in _RNvMNtNtCshiuf5WXvxYg_8regolith3env8bufferedNtB2_14BufferedWriter3new  C       defra-h3
+       1      10240   10240.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCs2Bvt3afTmpg_16libp2p_websocket  C       defra-h3
+       1       8192    8192.0   calloc in _RNvMs0_NtCs8Y5zbYsh0Fu_16concurrent_queue9unboundedINtB5_9UnboundedNtNtCs6fDaH1Qlw8X_16libp2p_gossipsub5types6RpcOutE4pushB17_  C       defra-h3
+       1       8192    8192.0   malloc in _RNvXs_NtNtCslJsSqIQKwiA_5alloc3vec21spec_from_iter_nestedINtB6_3VecNtNtNtCshiuf5WXvxYg_8regolith6engine11block_cache10CacheShardEINtB4_18SpecFromIterNestedB13_INtNtNtNtCsgtPOCBgevO_4core4iter8adapters3map3MapINtNtNtB2G_3ops5range5RangejENCNvMs1_B15_NtB15_10BlockCache11with_config0EE9from_iterB19_  C       defra-h3
+       1       7168    7168.0   malloc in _RNvMNtNtCskiVOz4vPCKK_5tokio7runtime4timeNtB2_6Driver3new  C       defra-h3
+       1       7168    7168.0   malloc in _RNvMs_NtCsaNl2KloY54Y_6rustls13limited_cacheINtB4_12LimitedCacheINtNtCslJsSqIQKwiA_5alloc3vec3VechEB10_E3newB6_  C       defra-h3
+       1       6144    6144.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTINtNtCs7oc5W8EkOYB_3cid3cid3CidKj40_EINtNtCsjvVDUHGOFe5_5ahash8hash_map8AHashMapNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdbEEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1r_NtNtB1w_12random_state11RandomStateE0ECshdLnojl1P5v_12iroh_bitswap  C       defra-h3
+       1       5120    5120.0   malloc in _RINvMs1_NtNtCsdJBXq2PLjDQ_9once_cell4race8once_boxINtB6_7OnceBoxNtNtCsbbN6S2VtjZ2_5kovan4slot9ASMRStateE4initNtNvMs1_B6_IBN_pE11get_or_init4VoidNCINvB2_11get_or_initNCNvB12_6global0E0EB14_  C       defra-h3
+       1       5120    5120.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc4listINtB2_2TxNtNtNtCshdLnojl1P5v_12iroh_bitswap6client12peer_manager7MessageE10find_blockBW_  C       defra-h3
+       1       5120    5120.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc5blockINtB2_5BlockNtNtNtCsb9wnD8JyU9u_3p2p4sync11coordinator11PushFailureE3newCsl21FAGs3kuF_5defra  C       defra-h3
+       1       5120    5120.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc5blockINtB2_5BlockNtNtNtCshdLnojl1P5v_12iroh_bitswap6client12peer_manager7MessageE3newCsl21FAGs3kuF_5defra  C       defra-h3
+       1       5120    5120.0   malloc in _RNvMs0_NtCsZ1Wrgv7jPa_11kovan_queue11array_queueINtB5_10ArrayQueueINtNtCslJsSqIQKwiA_5alloc4sync3ArcNtNtCsfRHfbq1AK39_13kovan_channel6signal6SignalEE3newCshiuf5WXvxYg_8regolith  C       defra-h3
+       1       3072    3072.0   malloc in _RNvMNtCs6fDaH1Qlw8X_16libp2p_gossipsub7backoffNtB2_14BackoffStorage3new  C       defra-h3
+       1       3072    3072.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCs7o977r3tZRs_15libp2p_identify  C       defra-h3
+       1       2560    2560.0   malloc in _RNvMNtNtCskiVOz4vPCKK_5tokio4util12sharded_listINtB2_11ShardedListINtNtNtB6_7runtime4task4TaskINtNtCslJsSqIQKwiA_5alloc4sync3ArcNtNtNtNtB17_9scheduler12multi_thread6handle6HandleEENtNtB15_4core6HeaderE3newB6_  C       defra-h3
+       1       1536    1536.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTINtNtCs7oc5W8EkOYB_3cid3cid3CidKj40_EINtNtCsjvVDUHGOFe5_5ahash8hash_set8AHashSetNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdEEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1r_NtNtB1w_12random_state11RandomStateE0ECshdLnojl1P5v_12iroh_bitswap  C       defra-h3
+       1       1280    1280.0   calloc in __CFTSDGetTable                         C       CoreFoundation
+       1       1280    1280.0   malloc in _RNCINvMs0_NtNtCsa9BKTri5B3M_3std4sync4onceNtB8_4Once15call_once_forceNCINvMNtBa_9once_lockINtB1b_8OnceLockINtNtBa_14reentrant_lock13ReentrantLockINtNtCsgtPOCBgevO_4core4cell7RefCellINtNtNtNtBc_2io8buffered10linewriter10LineWriterNtNtB30_5stdio9StdoutRawEEEE10initializeNCINvB1a_11get_or_initNCNvB3H_6stdout0E0zE0E0Bc_  C       defra-h3
+       1       1280    1280.0   malloc in _RNvMs0_NtCsZ1Wrgv7jPa_11kovan_queue11array_queueINtB5_10ArrayQueueINtNtCslJsSqIQKwiA_5alloc4sync3ArcNtNtNtNtCshiuf5WXvxYg_8regolith6engine6commit4slot9WriteSlotEE3newB1I_  C       defra-h3
+       1       1280    1280.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCs6fDaH1Qlw8X_16libp2p_gossipsub  C       defra-h3
+       1       1280    1280.0   malloc in cache_t::collect_free(bucket_t*, unsigned int)  C++     libobjc.A.dylib
+       1        896     896.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCsiI87CauE6wd_12libp2p_swarm15stream_protocol14StreamProtocolINtNtCs9jpoUk1Tm5t_15futures_channel4mpsc6SenderTNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdNtNtBU_6stream6StreamEEEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1T_NtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0ECslNj5JMRR18L_13libp2p_stream  C       defra-h3
+       1        896     896.0   malloc in _RNvMs_NtCsfRHfbq1AK39_13kovan_channel8waitlistNtB4_8WaitList3new  C       defra-h3
+       1        896     896.0   malloc in _RNvMsd_Cs468Qz1aYOCU_8smallvecINtB5_8SmallVecAINtNtCslJsSqIQKwiA_5alloc3vec3VechEj10_E8try_growCsl21FAGs3kuF_5defra  C       defra-h3
+       1        896     896.0   malloc in __CGColorSpaceCreateWithName_block_invoke  C       CoreGraphics
+       1        640     640.0   malloc in _CFRuntimeRegisterClass                 C       CoreFoundation
+       1        640     640.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdINtNtNtNtCsa9BKTri5B3M_3std11collections4hash3map7HashMapNtNtCsiI87CauE6wd_12libp2p_swarm10connection12ConnectionIdNtCs9LVuaz3ghpR_9multiaddr9MultiaddrEEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1E_NtNtNtB1N_4hash6random11RandomStateE0ECs7o977r3tZRs_15libp2p_identify  C       defra-h3
+       1        640     640.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdINtNtNtNtCsa9BKTri5B3M_3std11collections4hash3set7HashSetNtNtCsiI87CauE6wd_12libp2p_swarm10connection12ConnectionIdEEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1E_NtNtNtB1N_4hash6random11RandomStateE0ECs9DC6KIqwZ4v_24libp2p_connection_limits  C       defra-h3
+       1        640     640.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTjINtNtNtCsa9BKTri5B3M_3std6thread11join_handle10JoinHandleuEEE14reserve_rehashNCINvNtB8_3map11make_hasherjBR_NtNtNtBY_4hash6random11RandomStateE0ECskiVOz4vPCKK_5tokio  C       defra-h3
+       1        640     640.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc4listINtB2_2TxNtNtCsa9BKTri5B3M_3std4time7InstantE4pushCshdLnojl1P5v_12iroh_bitswap  C       defra-h3
+       1        640     640.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc5blockINtB2_5BlockNtNtCsa9BKTri5B3M_3std4time7InstantE3newCsl21FAGs3kuF_5defra  C       defra-h3
+       1        640     640.0   malloc in _RNvXsa_NtCslJsSqIQKwiA_5alloc3vecINtB5_3VecNtNtCsiI87CauE6wd_12libp2p_swarm15stream_protocol14StreamProtocolENtNtCsgtPOCBgevO_4core5clone5Clone5cloneCs7o977r3tZRs_15libp2p_identify  C       defra-h3
+       1        512     512.0   malloc in _RNvMNtCs7o977r3tZRs_15libp2p_identify9behaviourNtB2_6Config3new  C       defra-h3
+       1        512     512.0   malloc in __ColorSyncProfileCreateWithName_block_invoke  C       ColorSync
+       1        448     448.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdINtNtCslJsSqIQKwiA_5alloc3vec3VecNtNtCsiI87CauE6wd_12libp2p_swarm10connection12ConnectionIdEEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1E_NtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0ECs4ksk0j40545_12libp2p_relay  C       defra-h3
+       1        384     384.0   malloc in _RNvMs2_NtNtNtNtCslJsSqIQKwiA_5alloc11collections5btree3map5entryINtB5_5EntryyNtNtNtCshiuf5WXvxYg_8regolith6engine17snapshot_registry9SlotStateE9or_insertB1j_  C       defra-h3
+       1        384     384.0   malloc in _RNvXs4_NtNtCskxf4T89SWs4_11quinn_proto6crypto6rustlsNtB5_16QuicClientConfigINtNtCsgtPOCBgevO_4core7convert7TryFromNtNtNtCsaNl2KloY54Y_6rustls6client11client_conn12ClientConfigE8try_from  C       defra-h3
+       1        320     320.0   malloc in _RNvMs1_NtNtNtCskiVOz4vPCKK_5tokio7runtime8blocking4poolNtB5_12BlockingPool3new  C       defra-h3
+       1        320     320.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCshiuf5WXvxYg_8regolith  C       defra-h3
+       1        320     320.0   malloc in __CFBasicHashGetPtrIndex_block_invoke   C       CoreFoundation
+       1        320     320.0   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCs7soJhesfTZO_5yamux  C       defra-h3
+       1        320     320.0   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCskiVOz4vPCKK_5tokio  C       defra-h3
+       1        256     256.0   malloc in _RNvMs_NtCslNj5JMRR18L_13libp2p_stream9behaviourNtB4_9Behaviour3new  C       defra-h3
+       1        256     256.0   malloc in _RNvXs9_NtNtCskxf4T89SWs4_11quinn_proto6crypto6rustlsNtB5_16QuicServerConfigINtNtCsgtPOCBgevO_4core7convert7TryFromNtNtNtCsaNl2KloY54Y_6rustls6server11server_conn12ServerConfigE8try_from  C       defra-h3
+       1        256     256.0   realloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCslSD5u83rtt9_20signal_hook_registry  C       defra-h3
+       1        224     224.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCslJsSqIQKwiA_5alloc6string6StringBQ_EE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_BQ_NtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0ECs66IWL1b9X5C_8wasmtime  C       defra-h3
+       1        224     224.0   malloc in _RNvMs3_NtCskxf4T89SWs4_11quinn_proto6configNtB5_12ServerConfig11with_crypto  C       defra-h3
+       1        224     224.0   malloc in _RNvXNtCs9o6YY61lXgu_27wasmtime_internal_cranelift7builderNtB2_7BuilderNtNtCsjaB3OdXuYyT_16wasmtime_environ7compile15CompilerBuilder5build  C       defra-h3
+       1        192     192.0   _NSThreadData                                     ObjC    Foundation
+       1        192     192.0   malloc in _RNvMs1_NtNtCs7soJhesfTZO_5yamux10connection6streamNtB5_6Stream11new_inbound  C       defra-h3
+       1        192     192.0   malloc in _RNvMs1_NtNtCs7soJhesfTZO_5yamux10connection6streamNtB5_6Stream12new_outbound  C       defra-h3
+       1        192     192.0   malloc in _RNvMs3_NtNtCs66IWL1b9X5C_8wasmtime7runtime2vmNtB5_17ModuleRuntimeInfo8new_bare  C       defra-h3
+       1        192     192.0   malloc in _RNvXsa_NtCslJsSqIQKwiA_5alloc3vecINtB5_3VecIBw_INtNtB7_4sync3ArcNtNtNtCshiuf5WXvxYg_8regolith6engine7sstable7LiveSstEEENtNtCsgtPOCBgevO_4core5clone5Clone5cloneB16_  C       defra-h3
+       1        160     160.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCsiI87CauE6wd_12libp2p_swarm10connection12ConnectionIdINtNtCs9jpoUk1Tm5t_15futures_channel4mpsc6SenderNtNtCslNj5JMRR18L_13libp2p_stream7handler9NewStreamEEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_B1M_NtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0EB2C_  C       defra-h3
+       1        160     160.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCslJsSqIQKwiA_5alloc6string6StringmEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_mNtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0ECshiuf5WXvxYg_8regolith  C       defra-h3
+       1        160     160.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTmNtNtCslJsSqIQKwiA_5alloc6string6StringEE14reserve_rehashNCINvNtB8_3map11make_hashermBR_NtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0ECshiuf5WXvxYg_8regolith  C       defra-h3
+       1        160     160.0   malloc in _RNvMNtNtCshdLnojl1P5v_12iroh_bitswap6client22block_presence_managerNtB2_20BlockPresenceManager3new  C       defra-h3
+       1        160     160.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCs7soJhesfTZO_5yamux  C       defra-h3
+       1        160     160.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCslSD5u83rtt9_20signal_hook_registry  C       defra-h3
+       1        160     160.0   malloc in _RNvXs6_NtCskxf4T89SWs4_11quinn_proto6configNtB5_21ValidationTokenConfigNtNtCsgtPOCBgevO_4core7default7Default7default  C       defra-h3
+       1        128     128.0   calloc in color_space_state_create_device_gray    C       CoreGraphics
+       1        128     128.0   calloc in color_space_state_create_device_rgb     C       CoreGraphics
+       1        128     128.0   dispatch_queue_t (serial)                         ObjC    libdispatch.dylib
+       1        128     128.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCslJsSqIQKwiA_5alloc6string6StringuEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_uNtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0ECs66IWL1b9X5C_8wasmtime  C       defra-h3
+       1        128     128.0   malloc in _RINvXNtNtCslJsSqIQKwiA_5alloc3vec14spec_from_elemINtB5_3VecNtNtCs6fDaH1Qlw8X_16libp2p_gossipsub6mcache10CacheEntryENtB3_12SpecFromElem9from_elemNtNtB7_5alloc6GlobalEBZ_  C       defra-h3
+       1        128     128.0   malloc in _RNvMNtNtCskiVOz4vPCKK_5tokio7runtime7builderNtB2_7Builder5build  C       defra-h3
+       1        128     128.0   malloc in _RNvMNtNtNtCsaNl2KloY54Y_6rustls6server5handy5cacheNtB2_24ServerSessionMemoryCache3new  C       defra-h3
+       1        128     128.0   malloc in _RNvNtNtCskiVOz4vPCKK_5tokio4time8interval11interval_at  C       defra-h3
+       1        112     112.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTTNtNtNtCsgtPOCBgevO_4core3net7ip_addr6IpAddrtEuEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_uNtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0ECs7z9KUoXuHga_10libp2p_tcp  C       defra-h3
+       1        112     112.0   malloc in _RNCINvMs0_NtNtCsa9BKTri5B3M_3std4sync4onceNtB8_4Once9call_onceNCNvMs0_CslSD5u83rtt9_20signal_hook_registryNtB16_10GlobalData6ensure0E0B16_  C       defra-h3
+       1        112     112.0   malloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner11finish_growCseIwv3uh5hBV_12tracing_core  C       defra-h3
+       1        112     112.0   malloc in _RNvMsq_NtCslJsSqIQKwiA_5alloc4syncINtB5_3ArcShE15copy_from_sliceCshiuf5WXvxYg_8regolith  C       defra-h3
+       1         96      96.0   Foundation.LockedState<Foundation._NSSwiftProcessInfo.State>.(_Buffer in $18c12d3a4)<>  Swift   Foundation
+       1         96      96.0   malloc in _CFProcessPath                          C       CoreFoundation
+       1         96      96.0   malloc in _RINvMs_NtNtCsaNl2KloY54Y_6rustls6client7builderINtNtB9_7builder13ConfigBuilderNtNtB7_11client_conn12ClientConfigNtBM_13WantsVerifierE22with_root_certificatesNtNtNtB9_6webpki7anchors13RootCertStoreECs2Bvt3afTmpg_16libp2p_websocket  C       defra-h3
+       1         80      80.0   _NSMainThread                                     ObjC    Foundation
+       1         80      80.0   _NSSwiftProcessInfo                               Swift   Foundation
+       1         80      80.0   calloc in fetch_cache(bool)                       C       libobjc.A.dylib
+       1         80      80.0   malloc in _RINvMs1_NtNtCsdJBXq2PLjDQ_9once_cell4race8once_boxINtB6_7OnceBoxAAyj4_j2_E4initNtNvMs1_B6_IBN_pE11get_or_init4VoidNCINvB2_11get_or_initNCNvNtCsjvVDUHGOFe5_5ahash12random_state15get_fixed_seeds0E0ECs6BY7faCUK1r_4bm25  C       defra-h3
+       1         80      80.0   malloc in _RINvNtNtCskiVOz4vPCKK_5tokio4sync7oneshot7channeluEB6_  C       defra-h3
+       1         80      80.0   malloc in _RNvMNtNtCs7soJhesfTZO_5yamux10connection3rttNtB2_3Rtt3new  C       defra-h3
+       1         80      80.0   malloc in _RNvMs1_NtNtCshiuf5WXvxYg_8regolith6engine8manifestNtB5_10VersionSet5apply  C       defra-h3
+       1         80      80.0   malloc in _RNvYNCNvNtNtCsgPv4IHImOO3_17cranelift_codegen3isa7aarch6411isa_builder0INtNtNtCsgtPOCBgevO_4core3ops8function6FnOnceTNtNtCsipkep0VXRCl_14target_lexicon6triple6TripleNtNtBa_8settings5FlagsRNtB2F_7BuilderEE9call_onceBa_  C       defra-h3
+       1         64      64.0   Foundation.LockedState<Foundation._ProcessInfo.State>.(_Buffer in $18c12d3a4)<>  Swift   Foundation
+       1         64      64.0   Swift._ContiguousArrayStorage<Swift.Array<Swift.UInt8>>  Swift   libswiftCore.dylib
+       1         64      64.0   malloc in _RINvMs0_NtNtNtNtCsa9BKTri5B3M_3std3sys12thread_local6native4lazyINtB6_7StorageNtNtNtCskiVOz4vPCKK_5tokio7runtime4park10ParkThreaduE16get_or_init_slowNvNvB1g_14CURRENT_PARKER27___rust_std_internal_init_fnEB1k_  C       defra-h3
+       1         64      64.0   malloc in _RINvMs6_NtCs9nAj5kJTqSU_9hashbrown3rawINtB6_8RawTableTNtNtCsiI87CauE6wd_12libp2p_swarm10connection12ConnectionIduEE14reserve_rehashNCINvNtB8_3map11make_hasherBQ_uNtNtNtCsa9BKTri5B3M_3std4hash6random11RandomStateE0ECs4ksk0j40545_12libp2p_relay  C       defra-h3
+       1         64      64.0   malloc in _RINvNtNtCsfRHfbq1AK39_13kovan_channel7flavors9unbounded7channeluECshiuf5WXvxYg_8regolith  C       defra-h3
+       1         64      64.0   malloc in _RNvMs0_NtCslSD5u83rtt9_20signal_hook_registry9half_lockINtB5_10WriteGuardNtB7_10SignalDataE5storeB7_  C       defra-h3
+       1         64      64.0   malloc in _RNvXs2_NtNtCshiuf5WXvxYg_8regolith6engine9read_viewNtB5_12VersionGuardNtNtNtCsgtPOCBgevO_4core3ops4drop4Drop4drop  C       defra-h3
+       1         64      64.0   xpc_array_t (Storage)                             C       libxpc.dylib
+       1         64      64.0   xpc_pipe_t                                        ObjC    libxpc.dylib
+       1         48      48.0   Foundation.LockedState<Swift.Optional<Swift.String>>.(_Buffer in $18c12d3a4)<>  Swift   Foundation
+       1         48      48.0   _ProcessInfo                                      Swift   Foundation
+       1         48      48.0   malloc in _RINvMs_NtNtCsaNl2KloY54Y_6rustls6webpki15server_verifierNtB5_20WebPkiServerVerifier3newNtNtB7_7anchors13RootCertStoreECs2Bvt3afTmpg_16libp2p_websocket  C       defra-h3
+       1         48      48.0   malloc in _RNvCslSD5u83rtt9_20signal_hook_registry23register_unchecked_impl  C       defra-h3
+       1         48      48.0   malloc in _RNvMNtNtNtCskiVOz4vPCKK_5tokio4sync4mpsc5blockINtB2_5BlockuE3newCsl21FAGs3kuF_5defra  C       defra-h3
+       1         48      48.0   malloc in _RNvMs1_NtNtCshiuf5WXvxYg_8regolith6engine8manifestNtB5_10VersionSet16open_with_policy  C       defra-h3
+       1         48      48.0   malloc in _RNvMs3_NtCs7jJdUQNAEmZ_15libp2p_identity7keypairNtB5_9PublicKey15encode_protobuf  C       defra-h3
+       1         48      48.0   malloc in _RNvXs3_NtCs8oRPQr0HKtt_4snow6paramsNtB5_11NoiseParamsNtNtNtCsgtPOCBgevO_4core3str6traits7FromStr8from_str  C       defra-h3
+       1         48      48.0   malloc in _RNvXsa_NtCslJsSqIQKwiA_5alloc3vecINtB5_3VecTlNtCslSD5u83rtt9_20signal_hook_registry4SlotEENtNtCsgtPOCBgevO_4core5clone5Clone5cloneBJ_  C       defra-h3
+       1         48      48.0   xpc_array_t                                       ObjC    libxpc.dylib
+       1         32      32.0   calloc in _RINvNtCs9jpoUk1Tm5t_15futures_channel4mpsc7channelNtNtCs7jJdUQNAEmZ_15libp2p_identity7peer_id6PeerIdECslNj5JMRR18L_13libp2p_stream  C       defra-h3
+       1         32      32.0   calloc in _RINvNtCs9jpoUk1Tm5t_15futures_channel4mpsc7channelNtNtNtCs4ksk0j40545_12libp2p_relay11priv_client9transport23TransportToBehaviourMsgEBS_  C       defra-h3
+       1         32      32.0   calloc in _RNvMs4_NtCslJsSqIQKwiA_5alloc7raw_vecNtB5_11RawVecInner15try_allocate_inCsjevKHkJAzVy_5gimli  C       defra-h3
+       1         32      32.0   malloc in CGPropertiesCreate                      C       CoreGraphics
+       1         32      32.0   malloc in _RINvNtNtCsa9BKTri5B3M_3std3sys9backtrace28___rust_begin_short_backtraceNCNvMNtNtCs46KXby0LjjA_13futures_timer6native6globalNtB1c_12HelperThread3new0uEB1g_  C       defra-h3
+       1         32      32.0   malloc in _RNCINvMs0_NtNtCsa9BKTri5B3M_3std4sync4onceNtB8_4Once15call_once_forceNCINvMNtBa_9once_lockINtB1b_8OnceLockINtNtCslJsSqIQKwiA_5alloc4sync3ArcNtNtNtCshiuf5WXvxYg_8regolith3env7std_env6StdEnvEE10initializeNCINvB1a_11get_or_initNCNvB2i_7std_env0E0zE0E0B2k_  C       defra-h3
+       1         32      32.0   malloc in _RNvMNtCs6fDaH1Qlw8X_16libp2p_gossipsub3rpcNtB2_6Sender3new  C       defra-h3
+       1         32      32.0   malloc in _RNvMNtCshdLnojl1P5v_12iroh_bitswap7networkNtB2_7Network3new  C       defra-h3
+       1         32      32.0   malloc in _RNvMNtCsiI87CauE6wd_12libp2p_swarm6streamNtB2_19ActiveStreamCounter7default  C       defra-h3
+       1         32      32.0   malloc in _RNvMNtCskxf4T89SWs4_11quinn_proto6configNtB2_14EndpointConfig3new  C       defra-h3
+       1         32      32.0   malloc in _RNvMNtCsq1cnEoPJ38_3mio4pollNtB2_4Poll3new  C       defra-h3
+       1         32      32.0   malloc in _RNvMNtNtCskiVOz4vPCKK_5tokio7runtime6signalNtB2_6Driver3new  C       defra-h3
+       1         32      32.0   malloc in _RNvMNtNtCskiVOz4vPCKK_5tokio7runtime7builderNtB2_7Builder3new  C       defra-h3
+       1         32      32.0   malloc in _RNvMs0_NtNtCsaNl2KloY54Y_6rustls6client7builderINtNtB9_7builder13ConfigBuilderNtNtB7_11client_conn12ClientConfigNtB5_15WantsClientCertE19with_no_client_auth  C       defra-h3
+       1         32      32.0   malloc in _RNvMs1_NtCsaATCymVW0uT_11tracing_log10log_tracerNtB5_7Builder4init  C       defra-h3
+       1         32      32.0   malloc in _RNvMs1_NtCskxf4T89SWs4_11quinn_proto6configNtB5_12ServerConfig3new  C       defra-h3
+       1         32      32.0   malloc in _RNvMs_NtNtCsaNl2KloY54Y_6rustls6server11server_connNtB4_12ServerConfig21builder_with_provider  C       defra-h3
+       1         32      32.0   malloc in _RNvNtNtNtCskiVOz4vPCKK_5tokio7runtime8blocking8shutdown7channel  C       defra-h3
+       1         32      32.0   malloc in _RNvXs_NtNtCshiuf5WXvxYg_8regolith3env7std_envNtB4_6StdEnvNtB6_3Env5spawn  C       defra-h3
+       1         32      32.0   malloc in _RNvXs_NtNtCskxf4T89SWs4_11quinn_proto6config9transportNtB4_15TransportConfigNtNtCsgtPOCBgevO_4core7default7Default7default  C       defra-h3
+       1         32      32.0   malloc in swift_getForeignTypeMetadata            C       libswiftCore.dylib
+       1         16      16.0   malloc in _RNvMs0_Cshiuf5WXvxYg_8regolithNtB5_2Db16load_cf_registry  C       defra-h3
+       1         16      16.0   malloc in _RNvNtNtCshiuf5WXvxYg_8regolith3env7db_lock7acquire  C       defra-h3
+       1         16      16.0   malloc in _RNvXs1_CshdLnojl1P5v_12iroh_bitswapNtB5_6ConfigNtNtCsgtPOCBgevO_4core7default7Default7default  C       defra-h3
+       1         16      16.0   malloc in _RNvXsa_NtCslJsSqIQKwiA_5alloc3vecINtB5_3VecNtCs9LVuaz3ghpR_9multiaddr9MultiaddrENtNtCsgtPOCBgevO_4core5clone5Clone5cloneCs7o977r3tZRs_15libp2p_identify  C       defra-h3
+

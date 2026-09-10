@@ -1,0 +1,74 @@
+Process:         defra-h3 [85904]
+Path:            /Users/USER/*/defra-h3
+Load Address:    0x104e2c000
+Identifier:      defra-h3
+Version:         0
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  Python [85901]
+Target Type:     live task
+
+Date/Time:       2026-09-10 14:03:11.177 -0400
+Launch Time:     2026-09-10 13:58:06.846 -0400
+OS Version:      macOS 26.6.2 (25G83)
+Report Version:  7
+Analysis Tool:   /usr/bin/heap
+
+Physical footprint:         119.0M
+Physical footprint (peak):  119.0M
+Idle exit:                  untracked
+----
+
+Process 85904: 1 zone
+
+All zones: 62055 nodes malloced - Sizes: 34832KB[4] 2192KB[4] 1024KB[14] 896KB[1] 576KB[1] 544KB[1] 512KB[1] 400KB[2] 384KB[1] 336KB[1] 304KB[1] 256KB[1] 176KB[1] 160KB[2] 128KB[1] 80KB[2] 64KB[7] 48KB[4] 32KB[4] 28KB[3] 24KB[6] 20KB[277] 16KB[3] 14KB[281] 12KB[12] 10KB[282] 8KB[6] 7KB[5] 6KB[19] 5KB[6] 4KB[18] 3.5KB[526] 3KB[1986] 2.5KB[13] 2KB[24] 1.75KB[296] 1.5KB[327] 1.25KB[32] 1KB[46] 896[86] 768[587] 640[756] 512[279] 448[2320] 384[1937] 320[4147] 256[81] 224[31] 192[2951] 160[6847] 128[4111] 112[5875] 96[1301] 80[2364] 64[8450] 48[3223] 32[10665] 16[1823] 
+
+Found:  162 ObjC classes  48 Swift classes  66 CFTypes
+Type names for non-objects could be derived from allocation backtraces if the process used MallocStackLogging
+
+-----------------------------------------------------------------------
+All zones: 62055 nodes (203671632 bytes)
+
+   COUNT      BYTES       AVG   CLASS_NAME                                        TYPE    BINARY
+   =====      =====       ===   ==========                                        ====    ======
+   56107  203279888    3623.1   non-object                                                
+    5163     330432      64.0   pthread_mutex_t                                   C       libpthread.dylib
+     408      13056      32.0   Class.data (class_rw_t)                           C       libobjc.A.dylib
+     190      25776     135.7   xpc_dictionary_t (Storage)                        C       libxpc.dylib
+      26       1536      59.1   CFData                                            ObjC    CoreFoundation
+      23       1104      48.0   Class.data.extended (class_rw_ext_t)              C       libobjc.A.dylib
+      21       1680      80.0   Class.data.readonly (class_ro_t)                  C       libobjc.A.dylib
+      17       1712     100.7   Class.data.methods (method_array_t)               C       libobjc.A.dylib
+      17        864      50.8   Class.methodCache._buckets (bucket_t)             C       libobjc.A.dylib
+      16       1280      80.0   dispatch_semaphore_t                              ObjC    libdispatch.dylib
+       6       2208     368.0   xpc_string_t (Storage)                            C       libxpc.dylib
+       6        288      48.0   xpc_string_t                                      ObjC    libxpc.dylib
+       5        496      99.2   Swift.StringStorage                               Swift   libswiftCore.dylib
+       4        416     104.0   CGColor                                           CFType  CoreGraphics
+       4        384      96.0   CGColorSpace                                      CFType  CoreGraphics
+       4        128      32.0   NSMutableDictionary                               ObjC    CoreFoundation
+       3       1152     384.0   ColorSyncProfile                                  CFType  ColorSync
+       3        608     202.7   NSMutableDictionary (Storage)                     C       CoreFoundation
+       3        160      53.3   Swift._ContiguousArrayStorage<Swift.UInt8>        Swift   libswiftCore.dylib
+       2       1024     512.0   CFDictionary (Key Storage)                        C       CoreFoundation
+       2       1024     512.0   CFDictionary (Value Storage)                      C       CoreFoundation
+       2        640     320.0   Swift._ContiguousArrayStorage<Swift.String>       Swift   libswiftCore.dylib
+       2        192      96.0   NSURL                                             ObjC    CoreFoundation
+       2        192      96.0   xpc_dictionary_t                                  ObjC    libxpc.dylib
+       2        176      88.0   CFString                                          ObjC    CoreFoundation
+       2        128      64.0   CFDictionary                                      ObjC    CoreFoundation
+       2         96      48.0   pthread_cond_t                                    C       libpthread.dylib
+       1       4096    4096.0   @autoreleasepool content                          C       libobjc.A.dylib
+       1        192     192.0   _NSThreadData                                     ObjC    Foundation
+       1        128     128.0   dispatch_queue_t (serial)                         ObjC    libdispatch.dylib
+       1         80      80.0   Foundation.LockedState<Foundation._NSSwiftProcessInfo.State>.(_Buffer in $18c12d3a4)<>  Swift   Foundation
+       1         64      64.0   Swift._ContiguousArrayStorage<Swift.Array<Swift.UInt8>>  Swift   libswiftCore.dylib
+       1         64      64.0   _NSMainThread                                     ObjC    Foundation
+       1         64      64.0   _NSSwiftProcessInfo                               Swift   Foundation
+       1         64      64.0   xpc_array_t (Storage)                             C       libxpc.dylib
+       1         64      64.0   xpc_pipe_t                                        ObjC    libxpc.dylib
+       1         48      48.0   Foundation.LockedState<Foundation._ProcessInfo.State>.(_Buffer in $18c12d3a4)<>  Swift   Foundation
+       1         48      48.0   Foundation.LockedState<Swift.Optional<Swift.String>>.(_Buffer in $18c12d3a4)<>  Swift   Foundation
+       1         48      48.0   xpc_array_t                                       ObjC    libxpc.dylib
+       1         32      32.0   _ProcessInfo                                      Swift   Foundation
+
