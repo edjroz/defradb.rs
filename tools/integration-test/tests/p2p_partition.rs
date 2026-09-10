@@ -329,11 +329,21 @@ async fn partition_catchup_with(
     let converged = wait_for(&cluster, want, CONVERGE_CEILING);
     let conns_after = hole.accepted.load(Ordering::Relaxed);
     let seen = probe_signatures(&cluster).await;
+    // Replicator status is the observable proxy for durable retry markers:
+    // `finish_peer` leaves a peer Active only when its marker set is empty
+    // (`crates/p2p-adapter/src/retry.rs:264-285`), and `record_push_failure`
+    // flips it Inactive (`retry.rs:99-108`). Active here means the dropped
+    // documents were never handed to the persisted ladder at all.
+    let replicators = cluster
+        .client(0)
+        .p2p_replicator_list()
+        .map(|v| v.to_string())
+        .unwrap_or_else(|e| format!("error: {e}"));
 
     eprintln!(
         "[h1:{name}] RESULT baseline={baseline:?} cut={cut:?} docs={want} converged={converged:?} \
          ceiling={CONVERGE_CEILING:?} fixed_threshold={FIXED_THRESHOLD:?} \
-         proxy_connections={conns_before}->{conns_after} signatures={seen:?}"
+         proxy_connections={conns_before}->{conns_after} signatures={seen:?} replicators={replicators}"
     );
 
     let converged = converged.unwrap_or_else(|| {
