@@ -68,7 +68,10 @@ class Node:
             args.append("--no-signing")
         args += (["--p2paddr", f"/ip4/127.0.0.1/tcp/{p2p_port}"] if p2p else ["--no-p2p"])
         self.log = open(os.path.join(outdir, f"{name}.log"), "w")
-        self.proc = subprocess.Popen(args, stdout=self.log, stderr=subprocess.STDOUT)
+        env = dict(os.environ)
+        if os.environ.get("H3_STACK_LOGGING"):
+            env["MallocStackLogging"] = "1"
+        self.proc = subprocess.Popen(args, stdout=self.log, stderr=subprocess.STDOUT, env=env)
         self.args = args
 
     def cli(self, binary, *rest):
@@ -93,6 +96,15 @@ def applied_docs(url):
         return None
 
 
+def snapshot(pid, outdir, tag):
+    """vmmap + heap for the receiver; `heap` reports live malloc'd bytes, so a
+    growing RSS with a flat heap total means retention outside malloc."""
+    for tool in ("vmmap", "heap"):
+        args = ["vmmap", "-summary", str(pid)] if tool == "vmmap" else ["heap", str(pid)]
+        with open(os.path.join(outdir, f"{tool}-{tag}.txt"), "w") as f:
+            subprocess.run(args, stdout=f, stderr=subprocess.STDOUT, timeout=180)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--binary", required=True)
@@ -104,8 +116,12 @@ def main():
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--out", required=True)
     ap.add_argument("--port-base", type=int, default=19180)
+    ap.add_argument("--stack-logging", action="store_true", help="MallocStackLogging on the nodes, for malloc_history")
+    ap.add_argument("--snapshot", action="store_true", help="vmmap+heap at load end and settle end")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
+    if a.stack_logging:
+        os.environ["H3_STACK_LOGGING"] = "1"
 
     writer = Node(a.binary, "writer", a.port_base, a.port_base + 1, a.out, p2p=(a.mode == "replicate"))
     receiver = (Node(a.binary, "receiver", a.port_base + 2, a.port_base + 3, a.out)
@@ -181,9 +197,17 @@ def main():
         for t in threads:
             t.join()
         load_end = time.time() - t0
+        if a.snapshot:
+            snapshot(target.proc.pid, a.out, "load-end")
         time.sleep(a.settle)
+        if a.snapshot:
+            snapshot(target.proc.pid, a.out, "settle-end")
         stop.set()
         sampler.join(timeout=30)
+
+        with open(os.path.join(a.out, "du.txt"), "w") as f:
+            for n in nodes:
+                f.write(subprocess.run(["du", "-sk", n.root], capture_output=True, text=True).stdout)
 
         with open(os.path.join(a.out, "rss.jsonl"), "w") as f:
             for s in samples:
