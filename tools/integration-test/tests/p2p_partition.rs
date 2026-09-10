@@ -41,6 +41,7 @@ const FIXED_THRESHOLD: Duration = Duration::from_secs(30);
 /// Log lines that say which recovery machinery actually ran. Probed on both
 /// nodes after the heal so the two candidate mechanisms can be told apart.
 const SIGNATURES: &[(usize, &str)] = &[
+    (0, "p2p_listening"),
     (0, "Peer disconnected"),
     (0, "retry push failed"),
     (0, "retry push timed out"),
@@ -59,6 +60,12 @@ enum CutMode {
     /// Close both sockets. libp2p sees `ConnectionClosed` at once. This is the
     /// control: it is what a process restart or a graceful leave looks like.
     Reset,
+    /// Freeze the relay *and* stop node1's process, restarting it on the same
+    /// ports and peer id before the heal. This is the full shape of a docker
+    /// partition: the peer that stays on the network sees silence rather than
+    /// a reset, while the partitioned node loses its own socket state and is
+    /// unreachable at every address it advertises.
+    NodeDown,
 }
 
 /// A TCP relay that can be frozen mid-stream without closing either socket.
@@ -210,7 +217,8 @@ async fn probe_signatures(cluster: &TestCluster) -> Vec<String> {
 }
 
 async fn partition_catchup(mode: CutMode, cut: Duration, name: &str) {
-    let cluster = TestCluster::builder()
+    std::env::set_var("RUST_LOG", "info,p2p=debug,defra_p2p_adapter=debug");
+    let mut cluster = TestCluster::builder()
         .rust_nodes(2)
         .with_p2p()
         .build()
@@ -252,6 +260,11 @@ async fn partition_catchup(mode: CutMode, cut: Duration, name: &str) {
         .expect("baseline doc never replicated through the proxy");
 
     hole.cut();
+    let stopped = if mode == CutMode::NodeDown {
+        Some(cluster.stop_node(1).await.expect("stop node1"))
+    } else {
+        None
+    };
     let conns_before = hole.accepted.load(Ordering::Relaxed);
     let cut_at = Instant::now();
     for i in 0..DURING_CUT {
@@ -262,12 +275,28 @@ async fn partition_catchup(mode: CutMode, cut: Duration, name: &str) {
         thread::sleep(Duration::from_millis(200));
     }
     let during = count_docs(&cluster, 1);
-    assert_eq!(
-        during, 1,
-        "[{name}] the cut did not partition the nodes -- node1 kept receiving"
-    );
+    match mode {
+        // A clean close is repaired inside the cut window: libp2p redials the
+        // peer at the real address it learned over identify, so the relay is
+        // bypassed entirely and replication never actually stops.
+        CutMode::Reset => assert_eq!(
+            during,
+            DURING_CUT + 1,
+            "[{name}] expected the clean-close cut to be routed around"
+        ),
+        _ => assert!(
+            during <= 1,
+            "[{name}] the cut did not partition the nodes -- node1 saw {during} docs"
+        ),
+    }
 
-    // Heal onto the same address and peer id.
+    // Heal onto the same address, ports and peer id.
+    if let Some(stopped) = stopped {
+        cluster
+            .start_stopped_node(stopped, Duration::from_secs(60))
+            .await
+            .expect("restart node1");
+    }
     hole.heal();
     let want = DURING_CUT + 1;
     let converged = wait_for(&cluster, want, CONVERGE_CEILING);
@@ -305,10 +334,23 @@ async fn rust_rust_black_hole_cut_45s() {
     partition_catchup(CutMode::BlackHole, Duration::from_secs(45), "blackhole-45s").await;
 }
 
-/// Control: the same outage delivered as a clean close. If this converges fast
-/// and the black-hole cases do not, the half-open path is the cause and seed
-/// variance is not.
+/// Control: the same outage delivered as a clean close.
 #[tokio::test]
 async fn rust_rust_reset_cut_45s() {
     partition_catchup(CutMode::Reset, Duration::from_secs(45), "reset-45s").await;
+}
+
+/// The full docker-partition shape: silence toward the sender, lost socket
+/// state on the receiver. If this converges far slower than `black_hole` and
+/// `reset`, the slow path is real and the discriminator is the reset the
+/// sender never receives.
+#[tokio::test]
+async fn rust_rust_node_down_cut_45s() {
+    partition_catchup(CutMode::NodeDown, Duration::from_secs(45), "nodedown-45s").await;
+}
+
+/// The briefed 15 s outage in that same full shape.
+#[tokio::test]
+async fn rust_rust_node_down_cut_15s() {
+    partition_catchup(CutMode::NodeDown, Duration::from_secs(15), "nodedown-15s").await;
 }
