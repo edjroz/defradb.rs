@@ -177,13 +177,29 @@ fn split_multiaddr(addr: &str) -> (u16, String) {
     (port, peer)
 }
 
-fn count_docs(cluster: &TestCluster, idx: usize) -> usize {
+/// A document count that keeps the failure. The in-outage check needs to tell
+/// "node1 is up and has not caught up" from "node1 is not answering at all";
+/// collapsing both to `0` is what made the old `during <= 1` assertion vacuous
+/// for the two modes that stop the process.
+fn try_count_docs(cluster: &TestCluster, idx: usize) -> Result<usize, String> {
     cluster
         .client(idx)
         .query("query { Doc { _docID } }")
-        .ok()
-        .and_then(|v| v["Doc"].as_array().map(|a| a.len()))
-        .unwrap_or(0)
+        .map_err(|e| e.to_string())
+        .map(|v| v["Doc"].as_array().map(|a| a.len()).unwrap_or(0))
+}
+
+fn count_docs(cluster: &TestCluster, idx: usize) -> usize {
+    try_count_docs(cluster, idx).unwrap_or(0)
+}
+
+/// node1's peer id as its own p2p info reports it.
+fn peer_id_of(cluster: &TestCluster, idx: usize) -> String {
+    let addr = cluster.client(idx).p2p_info().expect("p2p_info")[0]
+        .as_str()
+        .expect("address")
+        .to_string();
+    split_multiaddr(&addr).1
 }
 
 fn write_doc(cluster: &TestCluster, idx: usize, label: &str, seq: usize) {
@@ -233,16 +249,29 @@ async fn partition_catchup_with(
     name: &str,
     extra_args: &[&str],
 ) {
-    std::env::set_var("RUST_LOG", "info,p2p=debug,defra_p2p_adapter=debug");
+    if std::env::var_os("RUST_LOG").is_none() {
+        std::env::set_var("RUST_LOG", "info,p2p=debug,defra_p2p_adapter=debug");
+    }
     // A persistent store is mandatory here, not a preference: the harness
     // defaults to `--store memory` (backbone `defra-harness/src/node/rust_node.rs:120`),
     // so a node stopped and restarted by `CutMode::NodeDown` would come back
     // with no schema and no documents, and "never converged" would measure the
     // wipe rather than the partition.
+    // A file keyring is as mandatory as the store. The harness default is
+    // `KeyringBackend::None` (backbone `cluster/builder.rs:105`), which becomes
+    // `--no-keyring` (`node/rust_node.rs:103`); with the keyring disabled the
+    // node passes no peer keypair (`crates/cli/src/commands/start/node.rs:224`)
+    // and libp2p generates a fresh ed25519 identity
+    // (`crates/p2p/src/host/p2p_host/mod.rs:295`). A restarted node1 would come
+    // back on a NEW peer id while node0's replicator record and retry markers
+    // still name the old one, so every redial fails at the handshake and
+    // "never converged" would measure that, not the partition. The harness
+    // documents the same trap for Go at `cluster/builder.rs:309-312`.
     let mut builder = TestCluster::builder()
         .rust_nodes(2)
         .with_p2p()
-        .with_store("regolith");
+        .with_store("regolith")
+        .with_file_keyring();
     if !extra_args.is_empty() {
         builder = builder.with_extra_rust_args(extra_args.iter().map(|a| a.to_string()));
     }
@@ -299,28 +328,40 @@ async fn partition_catchup_with(
     while cut_at.elapsed() < cut {
         thread::sleep(Duration::from_millis(200));
     }
-    let during = count_docs(&cluster, 1);
+    let during = try_count_docs(&cluster, 1);
     match mode {
         // A clean close is repaired inside the cut window: libp2p redials the
         // peer at the real address it learned over identify, so the relay is
         // bypassed entirely and replication never actually stops.
         CutMode::Reset => assert_eq!(
             during,
-            DURING_CUT + 1,
+            Ok(DURING_CUT + 1),
             "[{name}] expected the clean-close cut to be routed around"
         ),
-        _ => assert!(
-            during <= 1,
-            "[{name}] the cut did not partition the nodes -- node1 saw {during} docs"
+        // node1 is alive and answering; the cut held iff it is still at the
+        // baseline document. Both halves matter: an answering node proves the
+        // check is not vacuous, and the count proves the partition worked.
+        CutMode::BlackHole => assert_eq!(
+            during,
+            Ok(1),
+            "[{name}] black hole: node1 must answer and still hold only the baseline doc"
+        ),
+        // node1's process is stopped, so the only non-vacuous statement is that
+        // it does not answer at all.
+        CutMode::NodeDown | CutMode::RestartOnly => assert!(
+            during.is_err(),
+            "[{name}] node1 answered a query ({during:?}) while its process was stopped"
         ),
     }
 
     // Heal onto the same address, ports and peer id.
+    let mut peer_id_after = peer_id.clone();
     if let Some(stopped) = stopped {
         cluster
             .start_stopped_node(stopped, Duration::from_secs(60))
             .await
             .expect("restart node1");
+        peer_id_after = peer_id_of(&cluster, 1);
     }
     if mode != CutMode::RestartOnly {
         hole.heal();
@@ -343,7 +384,17 @@ async fn partition_catchup_with(
     eprintln!(
         "[h1:{name}] RESULT baseline={baseline:?} cut={cut:?} docs={want} converged={converged:?} \
          ceiling={CONVERGE_CEILING:?} fixed_threshold={FIXED_THRESHOLD:?} \
-         proxy_connections={conns_before}->{conns_after} signatures={seen:?} replicators={replicators}"
+         proxy_connections={conns_before}->{conns_after} peer_id_before={peer_id} \
+         peer_id_after={peer_id_after} peer_id_stable={} signatures={seen:?} replicators={replicators}",
+        peer_id_after == peer_id
+    );
+
+    // Without this the four restart modes measure a harness artifact rather
+    // than the partition: node0's replicator, its address book and its retry
+    // markers all name the pre-restart peer id.
+    assert_eq!(
+        peer_id_after, peer_id,
+        "[{name}] node1 came back on a different peer id -- the keyring did not persist it"
     );
 
     let converged = converged.unwrap_or_else(|| {
@@ -417,4 +468,26 @@ async fn rust_rust_node_down_cut_15s_flat_ladder() {
 #[tokio::test]
 async fn rust_rust_restart_only_15s() {
     partition_catchup(CutMode::RestartOnly, Duration::from_secs(15), "restart-15s").await;
+}
+
+/// A 60 s outage: longer than the first default ladder rung (30 s), so the
+/// persisted replicator retry is certain to have fired and failed at least
+/// once before the heal. Paired with the flat-ladder variant below, this is
+/// the second point of the p50 measurement the rerun brief asks for.
+#[tokio::test]
+async fn rust_rust_node_down_cut_60s() {
+    partition_catchup(CutMode::NodeDown, Duration::from_secs(60), "nodedown-60s").await;
+}
+
+/// The 60 s outage with the ladder flattened to 2 s, isolating pacing from
+/// everything else at the longer outage.
+#[tokio::test]
+async fn rust_rust_node_down_cut_60s_flat_ladder() {
+    partition_catchup_with(
+        CutMode::NodeDown,
+        Duration::from_secs(60),
+        "nodedown-60s-flat",
+        &["--replicator-retry-intervals", "2,2,2,2"],
+    )
+    .await;
 }
