@@ -78,7 +78,7 @@ const ROTATION_LOOP_THRESHOLD: usize = 4;
 /// was absent from soak runs 622 and C1b, which is why they could not answer
 /// this question.
 const FETCH_RUST_LOG: &str = "info,p2p::sync::coordinator=debug,\
-p2p::host::command_handler::bitswap=debug,defra_p2p_adapter=debug";
+p2p::host::command_handler::bitswap=debug,defra_p2p_adapter=debug,iroh_bitswap=debug";
 
 /// Which recovery machinery actually ran. `TestCluster::wait_for_log` matches
 /// *registered pattern names*, not free text -- backbone
