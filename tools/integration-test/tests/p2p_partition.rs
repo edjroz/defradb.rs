@@ -18,6 +18,7 @@
 //!
 //! Own test binary: it holds a listener and relay threads for its whole run.
 
+use std::collections::HashMap;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -43,6 +44,41 @@ const CUTS: usize = 3;
 /// Documents written on node0 during each of those outages. Short on purpose:
 /// what is being measured is the schedule, not throughput.
 const THREE_CUT_BURST: usize = 3;
+
+/// Schema for `rust_rust_fetch_stall_21s`. The `body` field is the point: a
+/// commit carrying it is not one small block, so a missed update chain leaves
+/// a frontier that has to be fetched rather than one a PushLog carries inline.
+const FETCH_SCHEMA: &str = "type Blob { label: String  seq: Int  body: String }";
+/// Payload written into `body` on every create and every update.
+const BODY_BYTES: usize = 8 * 1024;
+/// Few documents, many updates: depth in the commit DAG, not width in the
+/// document set, is what makes catch-up walk and fetch.
+const STREAM_DOCS: usize = 4;
+/// The outage, matching soak run 622 event 7 (21.4 s).
+const FETCH_CUT: Duration = Duration::from_secs(21);
+/// Ceiling for the fetch-stall measurement. Wider than `CONVERGE_CEILING`
+/// because the shape it hunts is the soak's 175-192 s p50, and it is
+/// *measured* rather than asserted: a run that does not converge records
+/// `None` and still reports its rotation counts.
+const FETCH_CEILING: Duration = Duration::from_secs(300);
+/// Gap between writes in the continuous stream. The stream is load-bearing
+/// twice over: it keeps the marker set non-empty, so `clear_retry_peer_once`
+/// stays a no-op (`crates/storage/src/stores/peerstore.rs:795-801`), and it
+/// keeps producing new heads for the rejoined node to chase.
+const STREAM_INTERVAL: Duration = Duration::from_millis(350);
+/// How long the stream keeps running past the heal.
+const STREAM_AFTER_HEAL: Duration = Duration::from_secs(60);
+/// More rotations than this on one root is a rotation *loop* rather than the
+/// single pass through the alternates a healthy fetch makes. Four providers
+/// (origin plus `MAX_PENDING_DAG_ALTERNATE_PROVIDERS = 3`,
+/// `crates/p2p/src/sync/pending_store.rs:36`) is one clean rotation.
+const ROTATION_LOOP_THRESHOLD: usize = 4;
+/// What the node logs have to carry for the measurement to mean anything.
+/// `Attempt stall budget exhausted` is DEBUG (`dag_fetcher.rs:772-777`) and
+/// was absent from soak runs 622 and C1b, which is why they could not answer
+/// this question.
+const FETCH_RUST_LOG: &str = "info,p2p::sync::coordinator=debug,\
+p2p::host::command_handler::bitswap=debug,defra_p2p_adapter=debug";
 
 /// Which recovery machinery actually ran. `TestCluster::wait_for_log` matches
 /// *registered pattern names*, not free text -- backbone
@@ -557,6 +593,336 @@ async fn rust_rust_node_down_three_cuts_flat_ladder() {
         &["--replicator-retry-intervals", "2,2,2,2"],
     )
     .await;
+}
+
+/// Every `Blob`'s `seq` on node `idx`, keyed by document id. `None` when the
+/// node does not answer at all, which is how the in-outage check stays
+/// non-vacuous.
+fn blob_seqs(cluster: &TestCluster, idx: usize) -> Option<HashMap<String, i64>> {
+    let value = cluster
+        .client(idx)
+        .query("query { Blob { _docID seq } }")
+        .ok()?;
+    let rows = value["Blob"].as_array()?;
+    Some(
+        rows.iter()
+            .filter_map(|row| Some((row["_docID"].as_str()?.to_string(), row["seq"].as_i64()?)))
+            .collect(),
+    )
+}
+
+/// True once every document has reached at least the `seq` it held on node0
+/// when the partition healed. Counting documents would not do: the stream is
+/// mostly updates, so the document count never moves and the whole missed
+/// commit chain would be invisible.
+fn caught_up(cluster: &TestCluster, idx: usize, want: &HashMap<String, i64>) -> bool {
+    let Some(have) = blob_seqs(cluster, idx) else {
+        return false;
+    };
+    want.iter()
+        .all(|(id, seq)| have.get(id).is_some_and(|got| got >= seq))
+}
+
+fn create_blob(cluster: &TestCluster, label: &str, seq: usize, body: &str) -> String {
+    let value = cluster
+        .client(0)
+        .query(&format!(
+            r#"mutation {{ add_Blob(input: {{label: "{label}", seq: {seq}, body: "{body}"}}) {{ _docID }} }}"#
+        ))
+        .unwrap_or_else(|e| panic!("create {label}: {e}"));
+    value["add_Blob"][0]["_docID"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no _docID for {label}"))
+        .to_string()
+}
+
+fn update_blob(cluster: &TestCluster, doc_id: &str, seq: usize, body: &str) {
+    cluster
+        .client(0)
+        .query(&format!(
+            r#"mutation {{ update_Blob(docID: "{doc_id}", input: {{seq: {seq}, body: "{body}"}}) {{ _docID }} }}"#
+        ))
+        .unwrap_or_else(|e| panic!("update {doc_id} to seq {seq}: {e}"));
+}
+
+/// node `idx`'s stdout log. The harness keeps the run directory only under
+/// `DEFRA_E2E_KEEP=1` (backbone `cluster/builder.rs:420-423`), which
+/// `runs-h1/run.sh` sets; without it there is no log and no measurement, so
+/// this panics rather than reporting a silent zero.
+fn node_log(idx: usize) -> String {
+    let root = std::env::var("DEFRA_WORKSPACE_ROOT")
+        .expect("DEFRA_WORKSPACE_ROOT must point at this worktree");
+    let e2e = std::path::Path::new(&root).join("target/e2e");
+    let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    for entry in std::fs::read_dir(&e2e)
+        .unwrap_or_else(|e| panic!("{}: {e} -- run with DEFRA_E2E_KEEP=1", e2e.display()))
+        .flatten()
+    {
+        let log = entry
+            .path()
+            .join(format!("rust-{idx}"))
+            .join("logs/stdout.log");
+        if !log.exists() {
+            continue;
+        }
+        let at = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        if newest.as_ref().is_none_or(|(best, _)| at >= *best) {
+            newest = Some((at, log));
+        }
+    }
+    let path = newest
+        .unwrap_or_else(|| panic!("no rust-{idx} stdout.log under {}", e2e.display()))
+        .1;
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+}
+
+/// Provider rotations in one node's log, bucketed by root CID. The WARN at
+/// `crates/p2p/src/sync/coordinator/dag_fetcher.rs:786-793` is emitted at the
+/// same site as `record_provider_rotation`, so this counts rotations exactly.
+/// Returns (total, distinct roots, worst root's count).
+fn rotations_by_root(log: &str) -> (usize, usize, usize) {
+    let mut per_root: HashMap<&str, usize> = HashMap::new();
+    let mut total = 0usize;
+    for line in log.lines() {
+        if !line.contains("No blocks from provider within fetch window") {
+            continue;
+        }
+        total += 1;
+        let root = line
+            .split("root_cid=")
+            .nth(1)
+            .and_then(|rest| rest.split_whitespace().next())
+            .unwrap_or("?");
+        *per_root.entry(root).or_default() += 1;
+    }
+    let worst = per_root.values().copied().max().unwrap_or(0);
+    (total, per_root.len(), worst)
+}
+
+/// The corrected H1 model: a symmetric black hole, a continuous write stream,
+/// commit DAGs wide enough to need a real block fetch, and a third node so the
+/// provider rotation has somewhere to rotate to.
+///
+/// Why this shape, and not the `HalfClose` asymmetry an earlier draft proposed:
+/// the log check on soak runs 622 and C1b found **no** `Peer connected` or
+/// `Peer disconnected` naming the partitioned node at event 7, on any node,
+/// in either run -- the only such transitions in the whole 30 minutes are its
+/// two graceful leaves. So a `docker network disconnect` is invisible to
+/// libp2p on *both* ends, nobody re-dials, `redundant_connections`
+/// (`crates/p2p/src/host/p2p_host/connection_manager.rs:103-134`) is never
+/// called, and there is no stale-connection dedup to build a test around.
+/// The partition's real shape is the symmetric black hole this file already
+/// has. What 622 shows instead is receiver-side: the partitioned node rotates
+/// providers on one root ten to fifteen times over 95-300 s, on a 10 s
+/// cadence with a 2 s gap every fourth -- four providers
+/// (`crates/p2p/src/sync/pending_store.rs:36`), three attempts
+/// (`.../coordinator/dag_retry.rs:16`), the bitswap per-block window
+/// (`crates/p2p/src/host/command_handler/bitswap.rs:74`) -- while the two
+/// unpartitioned nodes never rotate a root more than once. This test tries to
+/// make that loop happen locally, which no run has yet done.
+///
+/// Topology: node1 sits behind the relay and node0 *and* node2 reach it only
+/// through that relay, so one cut isolates node1 from both, as the container
+/// partition does. node0 replicates to node2 directly, so node2 holds every
+/// block written during the outage and is a genuine alternate provider for
+/// node1's catch-up. node2 is also the control: it is connected throughout and
+/// takes the same stream, so its rotation count is the same measurement on an
+/// unpartitioned node in the same process -- the local mirror of the soak's
+/// rust-2 against rust-0/rust-1.
+///
+/// Measured, not asserted: convergence is recorded as `Option<Duration>` under
+/// a 300 s ceiling and a run that never converges reports `None` rather than
+/// panicking, because a non-convergence with its rotation counts is exactly the
+/// result worth having. The only hard assertions are that the cut actually held
+/// and that the logs were readable.
+///
+/// Needs `DEFRA_E2E_KEEP=1` and `RUST_LOG` at least as verbose as
+/// `FETCH_RUST_LOG`; it sets that itself if `RUST_LOG` is unset.
+#[tokio::test]
+#[ignore = "pending a quiet host: three nodes and ~6 minutes of wall time; the soak queue owns this machine"]
+async fn rust_rust_fetch_stall_21s() {
+    if std::env::var_os("RUST_LOG").is_none() {
+        std::env::set_var("RUST_LOG", FETCH_RUST_LOG);
+    }
+    let cluster = TestCluster::builder()
+        .rust_nodes(3)
+        .with_p2p()
+        .with_store("regolith")
+        .with_file_keyring()
+        .build()
+        .await
+        .expect("cluster");
+
+    for idx in 0..3 {
+        cluster
+            .wait_for_log(idx, "p2p_listening", Duration::from_secs(30))
+            .await
+            .unwrap_or_else(|_| panic!("node{idx} P2P listener did not start"));
+        cluster
+            .client(idx)
+            .schema_add(FETCH_SCHEMA)
+            .expect("schema");
+    }
+
+    let real = cluster.client(1).p2p_info().expect("p2p_info")[0]
+        .as_str()
+        .expect("node1 address")
+        .to_string();
+    let (real_port, peer_id) = split_multiaddr(&real);
+    let node2_addr = cluster.client(2).p2p_info().expect("p2p_info")[0]
+        .as_str()
+        .expect("node2 address")
+        .to_string();
+
+    let hole = BlackHole::start(real_port, CutMode::BlackHole);
+    let proxied = format!("/ip4/127.0.0.1/tcp/{}/p2p/{}", hole.port, peer_id);
+    eprintln!("[h1:fetch-stall] node1 real={real} proxied={proxied} node2={node2_addr}");
+
+    // Everything that reaches node1 goes through the relay, so one cut
+    // isolates it from both peers. node2 is reached directly and stays up.
+    cluster
+        .client(0)
+        .p2p_connect(&[&proxied, &node2_addr])
+        .expect("node0 connect");
+    cluster
+        .client(2)
+        .p2p_connect(&[&proxied])
+        .expect("node2 connect to node1 via proxy");
+    for idx in 0..3 {
+        cluster
+            .client(idx)
+            .p2p_collection_add(&["Blob"])
+            .expect("subscribe");
+    }
+    cluster
+        .client(0)
+        .p2p_replicator_set(&["Blob"], &proxied)
+        .expect("replicator to node1");
+    cluster
+        .client(0)
+        .p2p_replicator_set(&["Blob"], &node2_addr)
+        .expect("replicator to node2");
+
+    let body = "x".repeat(BODY_BYTES);
+    let mut docs: Vec<(String, usize)> = Vec::new();
+    for i in 0..STREAM_DOCS {
+        docs.push((create_blob(&cluster, &format!("blob-{i}"), 0, &body), 0));
+    }
+    let baseline = Instant::now();
+    while baseline.elapsed() < Duration::from_secs(60) {
+        if blob_seqs(&cluster, 1).is_some_and(|s| s.len() >= STREAM_DOCS)
+            && blob_seqs(&cluster, 2).is_some_and(|s| s.len() >= STREAM_DOCS)
+        {
+            break;
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+    assert!(
+        blob_seqs(&cluster, 1).is_some_and(|s| s.len() >= STREAM_DOCS),
+        "[fetch-stall] baseline never replicated to node1 through the proxy"
+    );
+    let baseline = baseline.elapsed();
+
+    // The stream: one update every STREAM_INTERVAL, round-robin over the
+    // documents, from the cut until 60 s past the heal.
+    hole.cut();
+    let cut_at = Instant::now();
+    let mut next = 0usize;
+    while cut_at.elapsed() < FETCH_CUT {
+        let (id, seq) = &mut docs[next % STREAM_DOCS];
+        *seq += 1;
+        update_blob(&cluster, id, *seq, &body);
+        next += 1;
+        thread::sleep(STREAM_INTERVAL);
+    }
+
+    // node1 is alive and must answer, and must still be behind: both halves
+    // matter, or "it caught up" is measuring nothing.
+    let during = blob_seqs(&cluster, 1);
+    assert!(
+        during.is_some(),
+        "[fetch-stall] node1 stopped answering during a black hole; its process should be up"
+    );
+    let behind = during
+        .expect("checked")
+        .values()
+        .copied()
+        .max()
+        .unwrap_or(0);
+    assert!(
+        behind < docs.iter().map(|(_, s)| *s).max().unwrap_or(0) as i64,
+        "[fetch-stall] the cut did not hold: node1 is level with node0 at seq {behind}"
+    );
+
+    hole.heal();
+    let healed_at = Instant::now();
+    let want: HashMap<String, i64> = docs
+        .iter()
+        .map(|(id, seq)| (id.clone(), *seq as i64))
+        .collect();
+
+    let mut converged = None;
+    let mut control = None;
+    loop {
+        let elapsed = healed_at.elapsed();
+        if elapsed >= FETCH_CEILING {
+            break;
+        }
+        if elapsed < STREAM_AFTER_HEAL {
+            let (id, seq) = &mut docs[next % STREAM_DOCS];
+            *seq += 1;
+            update_blob(&cluster, id, *seq, &body);
+            next += 1;
+        }
+        if converged.is_none() && caught_up(&cluster, 1, &want) {
+            converged = Some(elapsed);
+        }
+        if control.is_none() && caught_up(&cluster, 2, &want) {
+            control = Some(elapsed);
+        }
+        if converged.is_some() && elapsed >= STREAM_AFTER_HEAL {
+            break;
+        }
+        thread::sleep(STREAM_INTERVAL);
+    }
+
+    let partitioned = node_log(1);
+    let unpartitioned = node_log(2);
+    let (rot1, roots1, worst1) = rotations_by_root(&partitioned);
+    let (rot2, roots2, worst2) = rotations_by_root(&unpartitioned);
+    let stall_budget = partitioned
+        .matches("Attempt stall budget exhausted")
+        .count();
+    let batch_timeouts = partitioned
+        .matches("Timeout fetching selective block batch")
+        .count();
+    let loop_seen = worst1 > ROTATION_LOOP_THRESHOLD;
+
+    eprintln!(
+        "[h1:fetch-stall] RESULT baseline={baseline:?} cut={FETCH_CUT:?} updates={next} \
+         converged_node1={converged:?} converged_node2={control:?} ceiling={FETCH_CEILING:?} \
+         rotations_node1={rot1} roots_node1={roots1} worst_root_node1={worst1} \
+         rotations_node2={rot2} roots_node2={roots2} worst_root_node2={worst2} \
+         stall_budget_exhausted={stall_budget} selective_batch_timeouts={batch_timeouts} \
+         rotation_loop={loop_seen} peer_id={peer_id}"
+    );
+    if loop_seen {
+        eprintln!(
+            "[h1:fetch-stall] REPRODUCED: one root rotated {worst1} times on the partitioned \
+             node against {worst2} on the control -- this is the loop soak run 622 shows and \
+             no local run has had before"
+        );
+    }
+
+    assert!(
+        rot1 + rot2 > 0 || converged.is_some(),
+        "[fetch-stall] neither node converged and neither log recorded a single provider \
+         rotation -- the logs are probably not verbose enough; RUST_LOG must include \
+         p2p::sync::coordinator=debug"
+    );
 }
 
 /// The briefed shape: a 15 s cut, shorter than the 30 s push send timeout.
