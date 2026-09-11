@@ -16,11 +16,6 @@ pub enum PushCreatorError {
         doc_id: String,
         errors: Vec<String>,
     },
-    OwnerMissing {
-        collection: String,
-        collection_id: String,
-        doc_id: String,
-    },
 }
 
 impl fmt::Display for PushCreatorError {
@@ -43,14 +38,6 @@ impl fmt::Display for PushCreatorError {
                 f,
                 "failed to resolve ACP owner for replay document {collection}/{collection_id}/{doc_id}: {}",
                 errors.join("; ")
-            ),
-            Self::OwnerMissing {
-                collection,
-                collection_id,
-                doc_id,
-            } => write!(
-                f,
-                "ACP owner is missing for protected replay document {collection}/{collection_id}/{doc_id}"
             ),
         }
     }
@@ -115,18 +102,19 @@ pub async fn resolve_push_creator(
         }
     }
 
-    if lookup_errors.is_empty() {
-        Err(PushCreatorError::OwnerMissing {
-            collection: collection.name().to_string(),
-            collection_id: collection.collection_id().to_string(),
-            doc_id: doc_id.to_string(),
-        })
-    } else {
-        Err(PushCreatorError::LookupFailed {
+    if !lookup_errors.is_empty() {
+        return Err(PushCreatorError::LookupFailed {
             collection: collection.name().to_string(),
             collection_id: collection.collection_id().to_string(),
             doc_id: doc_id.to_string(),
             errors: lookup_errors,
-        })
+        });
     }
+
+    // ACP answered: the document is unregistered. Under Local DAC that means
+    // public, and a document received by replication is deliberately left
+    // unregistered here (acp_merge_handler.rs:183-191), so neither has an owner
+    // to carry. Replay under the same creator the live path uses
+    // (broadcast.rs:201) and Go uses on every push (replicator.go:269,406,887).
+    Ok(fallback_creator.to_string())
 }

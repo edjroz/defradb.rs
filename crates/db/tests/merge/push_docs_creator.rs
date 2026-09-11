@@ -26,7 +26,7 @@ async fn resolve_push_creator_uses_owner_for_protected_document() {
 }
 
 #[tokio::test]
-async fn resolve_push_creator_falls_back_only_without_collection_policy() {
+async fn resolve_push_creator_falls_back_without_collection_policy() {
     let collection = Collection::new(CollectionVersion::new("Users", "v1", "col1", vec![]));
 
     let creator = resolve_push_creator(None, &collection, "doc1", "local-peer")
@@ -37,14 +37,14 @@ async fn resolve_push_creator_falls_back_only_without_collection_policy() {
 }
 
 #[tokio::test]
-async fn resolve_push_creator_errors_when_owner_is_missing() {
+async fn resolve_push_creator_falls_back_for_unregistered_public_document() {
     let acp = LocalDocumentACP::new(Arc::new(MemoryAcpStore::new()));
 
-    let error = resolve_push_creator(Some(&acp), &protected_collection(), "doc1", "local-peer")
+    let creator = resolve_push_creator(Some(&acp), &protected_collection(), "doc1", "local-peer")
         .await
-        .unwrap_err();
+        .unwrap();
 
-    assert!(matches!(error, PushCreatorError::OwnerMissing { .. }));
+    assert_eq!(creator, "local-peer");
 }
 
 #[tokio::test]
