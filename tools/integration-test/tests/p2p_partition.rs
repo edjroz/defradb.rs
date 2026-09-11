@@ -834,7 +834,7 @@ async fn rust_rust_fetch_stall_21s() {
     while cut_at.elapsed() < FETCH_CUT {
         let (id, seq) = &mut docs[next % STREAM_DOCS];
         *seq += 1;
-        update_blob(&cluster, id, *seq, &body);
+        update_blob(&cluster, id.as_str(), *seq, &body);
         next += 1;
         thread::sleep(STREAM_INTERVAL);
     }
@@ -874,7 +874,7 @@ async fn rust_rust_fetch_stall_21s() {
         if elapsed < STREAM_AFTER_HEAL {
             let (id, seq) = &mut docs[next % STREAM_DOCS];
             *seq += 1;
-            update_blob(&cluster, id, *seq, &body);
+            update_blob(&cluster, id.as_str(), *seq, &body);
             next += 1;
         }
         if converged.is_none() && caught_up(&cluster, 1, &want) {
