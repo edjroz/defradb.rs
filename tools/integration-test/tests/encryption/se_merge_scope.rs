@@ -41,7 +41,10 @@ fn go_binary() -> PathBuf {
 /// misses (the build output goes to the shared dir) and can resolve to another
 /// worktree's sources.
 fn rust_binary() -> PathBuf {
-    PathBuf::from(std::env::var("DEFRA_RUST_BIN").expect("DEFRA_RUST_BIN must point at the defra binary built from THIS worktree"))
+    PathBuf::from(
+        std::env::var("DEFRA_RUST_BIN")
+            .expect("DEFRA_RUST_BIN must point at the defra binary built from THIS worktree"),
+    )
 }
 
 fn p2p_addr(cluster: &TestCluster, idx: usize) -> String {
@@ -99,6 +102,22 @@ fn create_user(cluster: &TestCluster, idx: usize, name: &str) -> String {
         .client(idx)
         .query(&format!(
             r#"mutation {{ add_User(input: {{name: "{name}", age: 21, city: "NYC"}}) {{ _docID }} }}"#
+        ))
+        .expect("create User");
+    created["add_User"][0]["_docID"]
+        .as_str()
+        .or_else(|| created["add_User"]["_docID"].as_str())
+        .expect("missing _docID")
+        .to_string()
+}
+
+/// Same `name` (so the SE tag is identical) but a different `age`, so the two
+/// documents get distinct content-addressed docIDs.
+fn create_user_aged(cluster: &TestCluster, idx: usize, name: &str, age: u32) -> String {
+    let created = cluster
+        .client(idx)
+        .query(&format!(
+            r#"mutation {{ add_User(input: {{name: "{name}", age: {age}, city: "NYC"}}) {{ _docID }} }}"#
         ))
         .expect("create User");
     created["add_User"][0]["_docID"]
@@ -176,7 +195,13 @@ async fn rust_merger_se_query_finds_replicated_doc() {
 
     build_chain(&cluster, 0, 1, 2).await;
     let doc_id = create_user(&cluster, 0, "John");
-    wait_for_merge(&cluster, 1, &doc_id, Instant::now() + Duration::from_secs(45)).await;
+    wait_for_merge(
+        &cluster,
+        1,
+        &doc_id,
+        Instant::now() + Duration::from_secs(45),
+    )
+    .await;
 
     let hit = se_query_hits(
         &cluster,
@@ -209,7 +234,13 @@ async fn rust_merger_se_query_finds_go_created_doc() {
 
     build_chain(&cluster, 2, 0, 1).await;
     let doc_id = create_user(&cluster, 2, "John");
-    wait_for_merge(&cluster, 0, &doc_id, Instant::now() + Duration::from_secs(60)).await;
+    wait_for_merge(
+        &cluster,
+        0,
+        &doc_id,
+        Instant::now() + Duration::from_secs(60),
+    )
+    .await;
 
     let hit = se_query_hits(
         &cluster,
@@ -242,7 +273,13 @@ async fn go_merger_se_query_finds_rust_created_doc() {
 
     build_chain(&cluster, 0, 1, 2).await;
     let doc_id = create_user(&cluster, 0, "John");
-    wait_for_merge(&cluster, 1, &doc_id, Instant::now() + Duration::from_secs(60)).await;
+    wait_for_merge(
+        &cluster,
+        1,
+        &doc_id,
+        Instant::now() + Duration::from_secs(60),
+    )
+    .await;
 
     let hit = se_query_hits(
         &cluster,
@@ -255,5 +292,75 @@ async fn go_merger_se_query_finds_rust_created_doc() {
     assert!(
         hit,
         "go merger did not resolve a Rust-created merged doc through its own SE query"
+    );
+}
+
+/// Separates the defect from the soak generator's 40-name pool
+/// (`133-data-generation-review.md` Part 2, item 4), without a soak run.
+///
+/// One name, two documents, one query, on one node: MIDDLE writes `B` itself
+/// and merges `A` from CREATOR. Both carry `name: "John"`, so the query tag is
+/// identical for both and every pool-independent explanation (SE key, index,
+/// tag bytes, query wiring, transport) is controlled for by `B`.
+///
+/// If `B` hits and `A` misses, the miss is per-document and the pool only
+/// multiplies how many `A`-like documents one query has to name: pool size
+/// changes the reported rate, not the defect.
+#[tokio::test]
+async fn merged_doc_misses_while_self_written_doc_hits_on_same_name() {
+    let cluster = TestCluster::builder()
+        .rust_nodes(3)
+        .with_rust_binary(BinarySource::Path(rust_binary()))
+        .with_p2p()
+        .with_encryption()
+        .with_shared_searchable_encryption_key(SHARED_SE_KEY)
+        .build()
+        .await
+        .expect("build 3-node rust cluster");
+
+    build_chain(&cluster, 0, 1, 2).await;
+
+    let merged = create_user_aged(&cluster, 0, "John", 21);
+    let self_written = create_user_aged(&cluster, 1, "John", 22);
+    wait_for_merge(
+        &cluster,
+        1,
+        &merged,
+        Instant::now() + Duration::from_secs(45),
+    )
+    .await;
+
+    // Control: MIDDLE's own write must be resolvable through its replicator.
+    let control_hit = se_query_hits(
+        &cluster,
+        1,
+        &self_written,
+        "John",
+        Instant::now() + Duration::from_secs(45),
+    )
+    .await;
+    assert!(
+        control_hit,
+        "control failed: MIDDLE cannot resolve a document it wrote itself, \
+         so this test cannot say anything about the merged one"
+    );
+
+    let merged_hit = se_query_hits(
+        &cluster,
+        1,
+        &merged,
+        "John",
+        Instant::now() + Duration::from_secs(30),
+    )
+    .await;
+
+    let ids = cluster
+        .client(1)
+        .query(r#"query { encrypted_User(filter: {name: {_eq: "John"}}) { docIDs } }"#)
+        .expect("se query");
+    assert!(
+        merged_hit,
+        "one name, two documents: MIDDLE resolved its own write {self_written} \
+         but not the merged {merged}; query returned {ids}"
     );
 }
