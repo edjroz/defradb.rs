@@ -495,6 +495,10 @@ async fn partition_catchup_with(mode: CutMode, cut: Duration, name: &str, extra_
         converged <= CONVERGE_CEILING,
         "[{name}] catch-up {converged:?} exceeded the characterised ceiling {CONVERGE_CEILING:?}"
     );
+    assert!(
+        converged <= FIXED_THRESHOLD,
+        "[{name}] catch-up {converged:?} exceeded the fixed threshold {FIXED_THRESHOLD:?}"
+    );
 }
 
 /// Cut the *same* peer `CUTS` times inside one node0 process lifetime.
@@ -567,9 +571,16 @@ async fn three_cut_catchup(name: &str, cut: Duration, extra_args: &[&str]) {
     );
 
     for (i, caught_up) in converged.iter().enumerate() {
+        let caught_up = caught_up.unwrap_or_else(|| {
+            panic!(
+                "[{name}] cut {} never converged inside {CONVERGE_CEILING:?}",
+                i + 1
+            )
+        });
         assert!(
-            caught_up.is_some(),
-            "[{name}] cut {} never converged inside {CONVERGE_CEILING:?}",
+            caught_up <= FIXED_THRESHOLD,
+            "[{name}] cut {} catch-up {caught_up:?} exceeded the fixed threshold \
+             {FIXED_THRESHOLD:?}",
             i + 1
         );
     }
