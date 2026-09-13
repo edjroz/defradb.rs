@@ -634,6 +634,33 @@ impl<S: Store> Peerstore<S> {
         .await
     }
 
+    /// Return a peer to the first ladder rung after a pass that delivered
+    /// documents. Escalation is evidence of an unreachable peer; a peer that
+    /// is taking documents has refuted it.
+    pub async fn restart_retry_peer(&self, peer_id: &str) -> Result<bool> {
+        let _retry_guard = retry_peer_lock(peer_id).write_arc().await;
+        retry_push_txn_conflicts(|| async {
+            let mut txn = self.store.new_txn(false).await?;
+            if !txn.has(&ReplicatorKey::new(peer_id).bytes()).await? {
+                return Ok(false);
+            }
+            let key = ReplicatorRetryIDKey::new(peer_id).bytes();
+            let Some(bytes) = txn.get(&key).await? else {
+                return Ok(false);
+            };
+            let mut info =
+                super::RetryInfo::from_bytes(&bytes).map_err(crate::corekv::Error::Other)?;
+            info.advance_dispatch_cursor();
+            info.num_retries = 0;
+            info.bump_with_schedule(peer_id, &self.retry_schedule);
+            txn.set(&key, &info.to_bytes().map_err(crate::corekv::Error::Other)?)
+                .await?;
+            txn.commit().await?;
+            Ok(true)
+        })
+        .await
+    }
+
     /// Make an existing peer retry schedule immediately due without changing
     /// its failure-ladder rung.  A connection-established event is new
     /// delivery evidence: retaining an old connection-failure deadline after
