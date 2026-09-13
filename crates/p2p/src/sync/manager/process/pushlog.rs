@@ -325,8 +325,22 @@ impl<B: Blockstore + 'static> SyncManager<B> {
 
         let announced_block_kind = announced_block_kind(&msg.block);
         let head_priority = announced_block_kind.priority();
+        // Shed only a genuinely new head that would consume a pending-DAG
+        // slot. A descendant, a durably owned root, and a head already
+        // superseded or covered within its sender scope each ack below without
+        // registering anything; a sender that reads the at-capacity nack as
+        // success would otherwise drop them for good.
         if !self.can_process_pushlog(cid)
+            && announced_block_kind != AnnouncedBlockKind::Descendant
+            && !self.persisted_roots.read().contains(cid)
             && !self.scope_head_is_refresh_or_newer(
+                *cid,
+                sender_peer,
+                &msg.collection_id,
+                &msg.doc_id,
+                head_priority,
+            )
+            && !self.scope_head_is_covered_by_current(
                 *cid,
                 sender_peer,
                 &msg.collection_id,
@@ -1454,16 +1468,12 @@ mod tests {
             .expect("fill pending DAG registry");
         assert!(events.try_recv().is_err());
 
-        let (rejected_cid, _rejected_block) = create_lww_block("rejected");
-        let allocation_heavy_garbage = vec![0xff; 4 * 1024 * 1024];
+        let (rejected_field_cid, _) = create_lww_block("rejected");
+        let (rejected_cid, rejected_block) =
+            create_composite_block("doc456", "rejected", rejected_field_cid);
         let result = manager
             .process_pushlog(
-                &make_broadcast(
-                    "doc456",
-                    rejected_cid,
-                    allocation_heavy_garbage,
-                    "collection1",
-                ),
+                &make_broadcast("doc456", rejected_cid, rejected_block, "collection1"),
                 Some("peer-2"),
                 false,
                 None,
