@@ -96,6 +96,47 @@ def applied_docs(url):
         return None
 
 
+class MergeCounter:
+    """Applied composite merges, read forward from the receiver log so a
+    10-minute run does not re-scan a 40 MB file on every sample."""
+
+    NEEDLE = b"Processing Composite delta"
+
+    def __init__(self, path):
+        self.path, self.pos, self.n = path, 0, 0
+
+    def count(self):
+        try:
+            with open(self.path, "rb") as f:
+                f.seek(self.pos)
+                data = f.read()
+        except FileNotFoundError:
+            return self.n
+        cut = data.rfind(b"\n") + 1  # keep a partial trailing line for next time
+        self.n += data[:cut].count(self.NEEDLE)
+        self.pos += cut
+        return self.n
+
+
+def store_files(root):
+    """(*.sst count, total KB, wal KB) under a node root. regolith flushes a
+    memtable into `sst/` and recycles `wal/` (engine/mod.rs:471-472), so an
+    SST appearing is the rotation signal and the WAL is the live memtable's
+    on-disk twin."""
+    ssts = total = wal = 0
+    for dirpath, _, names in os.walk(root):
+        in_wal = os.path.basename(dirpath) == "wal"
+        for name in names:
+            try:
+                size = os.path.getsize(os.path.join(dirpath, name))
+            except OSError:
+                continue
+            total += size
+            wal += size if in_wal else 0
+            ssts += name.endswith(".sst")
+    return ssts, total // 1024, wal // 1024
+
+
 def snapshot(pid, outdir, tag):
     """vmmap + heap for the receiver; `heap` reports live malloc'd bytes, so a
     growing RSS with a flat heap total means retention outside malloc."""
@@ -117,7 +158,14 @@ def main():
     ap.add_argument("--docs", type=int, default=0, help="0 = a new doc per write; N = update N docs round-robin")
     ap.add_argument("--settle", type=int, default=240)
     ap.add_argument("--mode", choices=["replicate", "local"], default="replicate")
-    ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--workers", type=int, default=4, help="load threads per writer node")
+    ap.add_argument("--writer-nodes", type=int, default=1, help="writer nodes replicating into one receiver")
+    ap.add_argument("--interval", type=float, default=10.0, help="seconds between RSS samples")
+    ap.add_argument("--doc-bytes", type=int, default=DOC_BYTES)
+    ap.add_argument("--random-blob", action="store_true",
+                    help="fresh random hex payload per write, like the soak generator's alnum blob "
+                         "(backbone crates/soak/src/generator.rs:336); the default 'xxxx' blob is "
+                         "compressed away by regolith's LZ4 and never reaches the store")
     ap.add_argument("--out", required=True)
     ap.add_argument("--port-base", type=int, default=19180)
     ap.add_argument("--stack-logging", action="store_true", help="MallocStackLogging on the nodes, for malloc_history")
@@ -127,11 +175,15 @@ def main():
     if a.stack_logging:
         os.environ["H3_STACK_LOGGING"] = "1"
 
-    writer = Node(a.binary, "writer", a.port_base, a.port_base + 1, a.out, p2p=(a.mode == "replicate"))
-    receiver = (Node(a.binary, "receiver", a.port_base + 2, a.port_base + 3, a.out)
+    writers = [Node(a.binary, "writer" if a.writer_nodes == 1 else f"writer{w}",
+                    a.port_base + 2 * w, a.port_base + 2 * w + 1, a.out, p2p=(a.mode == "replicate"))
+               for w in range(a.writer_nodes)]
+    writer = writers[0]
+    receiver = (Node(a.binary, "receiver", a.port_base + 2 * a.writer_nodes,
+                     a.port_base + 2 * a.writer_nodes + 1, a.out)
                 if a.mode == "replicate" else None)
     target = receiver or writer
-    nodes = [n for n in (writer, receiver) if n]
+    nodes = writers + ([receiver] if receiver else [])
     mypids = {n.proc.pid for n in nodes}
     try:
         for n in nodes:
@@ -140,62 +192,71 @@ def main():
         if receiver:
             info = json.loads(receiver.cli(a.binary, "client", "p2p", "info").stdout)
             addr = info[0] if isinstance(info, list) else info
-            r = writer.cli(a.binary, "client", "p2p", "replicator", "add", "-c", "Users", addr)
-            if r.returncode != 0:
-                raise RuntimeError(f"replicator add failed: {r.stderr}")
+            for w in writers:
+                r = w.cli(a.binary, "client", "p2p", "replicator", "add", "-c", "Users", addr)
+                if r.returncode != 0:
+                    raise RuntimeError(f"replicator add failed on {w.name}: {r.stderr}")
             time.sleep(3)
 
         samples, stop = [], threading.Event()
         t0 = time.time()
         counter = {"sent": 0, "failed": 0}
+        merges = MergeCounter(os.path.join(a.out, f"{target.name}.log"))
 
         def sample():
             while not stop.is_set():
                 applied = applied_docs(target.url)
+                ssts, store_kb, wal_kb = store_files(target.root)
                 samples.append({"t": round(time.time() - t0, 1),
                                 "rss_target_kb": rss_kb(target.proc.pid),
                                 "rss_writer_kb": rss_kb(writer.proc.pid),
-                                "applied_docs": applied, "sent": counter["sent"],
+                                "applied_docs": applied, "merges": merges.count(),
+                                "sst_files": ssts, "store_kb": store_kb, "wal_kb": wal_kb,
+                                "sent": counter["sent"],
                                 "load1": load_avg(), "other_defra": other_defra(mypids)})
-                stop.wait(10)
+                stop.wait(a.interval)
 
         sampler = threading.Thread(target=sample, daemon=True)
         sampler.start()
 
-        blob = "x" * DOC_BYTES
+        blob = "x" * a.doc_bytes
+        payload = (lambda: os.urandom(a.doc_bytes // 2).hex()) if a.random_blob else (lambda: blob)
         lock = threading.Lock()
-        docids = []
+        docids = {w.name: [] for w in writers}
+        per_writer = {w.name: 0 for w in writers}
 
-        def work(worker_id):
+        def work(node):
+            my_docids = docids[node.name]
             interval = a.workers / a.rate
             nxt = time.time()
             while True:
                 with lock:
-                    i = counter["sent"]
+                    i = per_writer[node.name]
                     if i >= a.ops:
                         return
+                    per_writer[node.name] += 1
                     counter["sent"] += 1
                 nxt += interval
                 delay = nxt - time.time()
                 if delay > 0:
                     time.sleep(delay)
                 try:
-                    if a.docs and len(docids) >= a.docs:
-                        did = docids[i % a.docs]
-                        gql(writer.url, f'mutation {{ update_Users(docID: "{did}", '
-                                        f'input: {{age: {i % 90}, blob: "{blob}"}}) {{ _docID }} }}')
+                    if a.docs and len(my_docids) >= a.docs:
+                        did = my_docids[i % a.docs]
+                        gql(node.url, f'mutation {{ update_Users(docID: "{did}", '
+                                      f'input: {{age: {i % 90}, blob: "{payload()}"}}) {{ _docID }} }}')
                     else:
-                        d = gql(writer.url, f'mutation {{ create_Users(input: {{name: "u{i}", age: {i % 90}, '
-                                            f'score: 1.5, blob: "{blob}"}}) {{ _docID }} }}')
+                        d = gql(node.url, f'mutation {{ create_Users(input: {{name: "{node.name}u{i}", '
+                                          f'age: {i % 90}, score: 1.5, blob: "{payload()}"}}) {{ _docID }} }}')
                         rows = next(iter(d.values()))  # the node answers under add_Users
                         with lock:
-                            docids.append(rows[0]["_docID"])
+                            my_docids.append(rows[0]["_docID"])
                 except Exception as e:
                     with lock:
                         counter["failed"] += 1
                         counter.setdefault("first_error", f"{type(e).__name__}: {e}")
 
-        threads = [threading.Thread(target=work, args=(w,)) for w in range(a.workers)]
+        threads = [threading.Thread(target=work, args=(n,)) for n in writers for _ in range(a.workers)]
         for t in threads:
             t.start()
         for t in threads:
@@ -242,6 +303,12 @@ def main():
             "rss_settle_end_mb": round(settle_s[-1]["rss_target_kb"] / 1024, 1) if settle_s else None,
             "applied_docs_start": first["applied_docs"], "applied_docs_load_end": last["applied_docs"],
             "applied_docs_settle_end": settle_s[-1]["applied_docs"] if settle_s else None,
+            "merges_load_end": last["merges"], "merges_settle_end": settle_s[-1]["merges"] if settle_s else None,
+            "sst_files_load_end": last["sst_files"], "sst_files_settle_end": settle_s[-1]["sst_files"] if settle_s else None,
+            "kb_per_merge_settle_end": (round((settle_s[-1]["rss_target_kb"] - first["rss_target_kb"])
+                                              / settle_s[-1]["merges"], 1)
+                                        if settle_s and settle_s[-1]["merges"] else None),
+            "sent_per_writer": dict(per_writer),
             "mb_per_min_load": round(d_rss / max(1e-9, last["t"] - first["t"]) * 60, 2),
             "kb_per_applied_write": round(d_rss * 1024 / d_applied, 1) if d_applied else None,
             "kb_per_sent_write": round(d_rss * 1024 / max(1, last["sent"] - first["sent"]), 1),

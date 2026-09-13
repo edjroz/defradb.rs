@@ -256,8 +256,11 @@ pub struct P2PHost<S: Store> {
     pub(super) two_stream_event_rx: mpsc::Receiver<crate::two_stream::TwoStreamEvent>,
     /// Tracked spawned tasks for graceful shutdown
     pub(super) spawned_tasks: tokio::task::JoinSet<()>,
-    /// Bitswap query abort handles for cancellation support
-    pub(super) bitswap_queries: HashMap<QueryId, tokio::task::AbortHandle>,
+    /// Bitswap query abort handles and session ids, for cancellation and
+    /// session teardown. Shared with each fetch task, which removes its own
+    /// entry when it completes.
+    pub(super) bitswap_queries:
+        Arc<parking_lot::Mutex<HashMap<QueryId, (tokio::task::AbortHandle, u64)>>>,
     /// Per-peer addresses learned from connections and identify protocol.
     /// Used by ActivePeers to return full multiaddrs (Go-compatible).
     pub(super) peer_addrs: HashMap<PeerId, Multiaddr>,
@@ -589,7 +592,7 @@ impl<S: Store + Clone + Send + Sync + 'static> P2PHost<S> {
             two_stream_handler,
             two_stream_event_rx,
             spawned_tasks: tokio::task::JoinSet::new(),
-            bitswap_queries: HashMap::new(),
+            bitswap_queries: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             peer_addrs: HashMap::new(),
             node_identity,
             connection_manager: ActiveConnectionManager::new(

@@ -1265,3 +1265,41 @@ mod cache_ownership {
         assert_eq!(cached, data);
     }
 }
+
+/// The block cache is bounded by entry count, not by bytes, so it keeps a
+/// copy of every block a node writes or reads until it has seen a million of
+/// them, however large they are. The pointer test from `cache_ownership`
+/// tells a hit from a miss: a miss hands back the engine's slice, a hit the
+/// cache's own copy, so two reads of an evicted block address different
+/// memory and two reads of a cached one address the same copy.
+mod cache_budget {
+    use super::*;
+
+    #[tokio::test]
+    async fn the_cache_evicts_before_it_holds_64_mib_of_copies() {
+        let store = Arc::new(RegolithStore::in_memory().unwrap());
+        let blockstore = DefraBlockstore::new(Arc::clone(&store), false);
+
+        const BLOCK_LEN: usize = 64 * 1024;
+        const BLOCKS: usize = 1024;
+        let mut first = None;
+        for i in 0..BLOCKS {
+            let mut data = vec![0xCD; BLOCK_LEN];
+            data[..8].copy_from_slice(&(i as u64).to_be_bytes());
+            let cid = cid_from_data(&data);
+            first.get_or_insert(cid);
+            blockstore.put(&cid, &data).await.unwrap();
+        }
+        let first = first.unwrap();
+
+        let a = blockstore.get(&first).await.unwrap().expect("block present");
+        let b = blockstore.get(&first).await.unwrap().expect("block present");
+        assert_ne!(
+            a.as_ptr(),
+            b.as_ptr(),
+            "the first of {BLOCKS} {BLOCK_LEN}-byte blocks is still cached after {} MiB \
+             of later writes: the block cache has no byte bound",
+            BLOCKS * BLOCK_LEN / (1024 * 1024)
+        );
+    }
+}
