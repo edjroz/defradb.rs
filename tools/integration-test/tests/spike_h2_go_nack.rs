@@ -5,7 +5,7 @@
 //! the reply's. The claim under test is that a Rust backpressure nack therefore
 //! reaches Go, is read as success, and the document is never retried.
 //!
-//! Three phases, one Go writer and one Rust receiver each:
+//! Four phases, one Go writer and one Rust receiver each:
 //!
 //! * `Clamped`  - the receiver's request rate limiter holds a single token, so
 //!   a burst of creates is nacked with `RATE_LIMITED_MESSAGE`.
@@ -13,6 +13,9 @@
 //! * `Down`     - the receiver is stopped before the burst, so Go's pushes fail
 //!   at the transport. This is the positive control for the Go-side reads: it
 //!   shows what `handleReplicatorFailure` looks like when it does run.
+//! * `Shed`     - the receiver's pending-DAG map holds a single slot
+//!   (`DEFRA_P2P_MAX_PENDING_DAGS=1`), so the burst is nacked by the early
+//!   capacity shed (`AT_CAPACITY_MESSAGE`) instead of the rate limiter.
 //!
 //! Go's `/rep/retry/doc/{peer}/{doc}` keyspace is read behaviourally. Its only
 //! writer is `handleReplicatorFailure` (`internal/db/p2p/replicator.go:457-482`),
@@ -52,6 +55,7 @@ enum Mode {
     Clamped,
     Default,
     Down,
+    Shed,
 }
 
 fn go_binary() -> PathBuf {
@@ -109,6 +113,8 @@ struct Outcome {
     arrivals: usize,
     distinct_arrivals: usize,
     nacks: usize,
+    late_rejects: usize,
+    reply_send_failures: usize,
     go_push_failures: usize,
     go_status_changes: usize,
     replicator_status: Value,
@@ -133,7 +139,11 @@ async fn run(mode: Mode) -> Outcome {
             "0.02",
         ]);
     }
+    if mode == Mode::Shed {
+        std::env::set_var("DEFRA_P2P_MAX_PENDING_DAGS", "1");
+    }
     let mut cluster = builder.build().await.expect("cluster start");
+    std::env::remove_var("DEFRA_P2P_MAX_PENDING_DAGS");
 
     for node in 0..2 {
         cluster
@@ -189,10 +199,17 @@ async fn run(mode: Mode) -> Outcome {
         "Host received PushLog request via two-stream protocol",
     );
     let distinct: HashSet<&str> = arrivals.iter().filter_map(|l| doc_id_of(l)).collect();
-    let nacks: Vec<&str> = lines_with(&rust_log, "Rate limit exceeded, rejecting event")
-        .into_iter()
-        .filter(|l| l.contains("TwoStreamRequest"))
-        .collect();
+    let nacks: Vec<&str> = if mode == Mode::Shed {
+        lines_with(
+            &rust_log,
+            "Pending DAGs at capacity, shedding PushLog before block verification",
+        )
+    } else {
+        lines_with(&rust_log, "Rate limit exceeded, rejecting event")
+            .into_iter()
+            .filter(|l| l.contains("TwoStreamRequest"))
+            .collect()
+    };
     let go_failures = lines_with(&go_log, "Failed pushing log");
     let go_status = lines_with(&go_log, "Replicator status changed");
 
@@ -218,6 +235,8 @@ async fn run(mode: Mode) -> Outcome {
         arrivals: arrivals.len(),
         distinct_arrivals: distinct.len(),
         nacks: nacks.len(),
+        late_rejects: lines_with(&rust_log, "rejecting PushLog DAG registration").len(),
+        reply_send_failures: lines_with(&rust_log, "Failed to send two-stream response").len(),
         go_push_failures: go_failures.len(),
         go_status_changes: go_status.len(),
         replicator_status: go.p2p_replicator_list().expect("replicator list"),
@@ -229,8 +248,8 @@ fn report(label: &str, o: &Outcome) {
     println!("--- {label} ---");
     println!("go_docs={} rust_docs={}", o.go_docs, o.rust_docs);
     println!(
-        "rust: pushlog arrivals={} (distinct docs {}) rate-limit nacks={}",
-        o.arrivals, o.distinct_arrivals, o.nacks
+        "rust: pushlog arrivals={} (distinct docs {}) nacks={} late rejects={} reply-send failures={}",
+        o.arrivals, o.distinct_arrivals, o.nacks, o.late_rejects, o.reply_send_failures
     );
     println!(
         "go: 'Failed pushing log'={} 'Replicator status changed'={}",
@@ -281,4 +300,29 @@ async fn go_pusher_reads_rust_nack_as_success() {
     report("default receiver (control)", &control);
     assert_eq!(control.nacks, 0, "control receiver nacked");
     assert_eq!(control.rust_docs, DOCS, "control did not replicate");
+}
+
+/// The same Go defect, reached through the pending-DAG capacity shed rather
+/// than the rate limiter: every document Go commits must end up on the
+/// receiver, because Go never retries a push it read as success.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "spawns a Go node and settles for 75s"]
+async fn go_pusher_loses_documents_to_the_capacity_shed() {
+    let shed = run(Mode::Shed).await;
+    report("single-slot receiver (capacity shed)", &shed);
+    assert!(shed.nacks > 0, "receiver never shed; nothing was exercised");
+    assert_eq!(shed.go_docs, DOCS, "go did not commit every document");
+    assert_eq!(
+        shed.go_push_failures, 0,
+        "go logged push failures; it did read the nack"
+    );
+    assert_eq!(
+        shed.go_status_changes, 0,
+        "go flipped the replicator to inactive, so handleReplicatorFailure ran"
+    );
+    assert_eq!(
+        shed.rust_docs, DOCS,
+        "the receiver is missing documents go acked as delivered ({} shed)",
+        shed.nacks
+    );
 }
