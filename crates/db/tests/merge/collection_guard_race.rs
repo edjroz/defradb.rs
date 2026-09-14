@@ -6,13 +6,6 @@
 //! The guard wait is observed through the trace events
 //! `DB::collection_read_guard` emits, so the test proves the merge reached
 //! the lock and was released by the drop, not merely that it was slow.
-//!
-//! The recorder is the process-wide subscriber, not a thread-local one:
-//! tracing caches a callsite's interest once per process, computed on the
-//! thread that hits it first, and with a single registered dispatcher that
-//! computation uses that thread's default. A thread-local recorder therefore
-//! misses any callsite another test in this binary reaches first. Events are
-//! keyed by collection id so parallel tests cannot be mistaken for this one.
 
 use blockstore::DefraBlockstore;
 use db::merge::merge_handler::DbMergeHandler;
@@ -20,80 +13,13 @@ use db::DB;
 use defra_core::merge::{BlockMetadata, MergeHandler, MergeOutcome};
 use document::Document;
 use schema::{CollectionVersion, FieldDescription, FieldKind};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 use storage::corekv::{IterOptions, Store};
 use storage::RegolithStore;
 
+use crate::common::guard_events::{recorder, READ_HOLDING, READ_WAITING};
+
 const COLLECTION_ID: &str = "col-guard-race";
-const GUARD_TARGET: &str = "db::collection::locks";
-const WAITING: &str = "waiting for the collection guard";
-const HOLDING: &str = "holding the collection guard";
-
-/// Every guard event emitted anywhere in this process, as (collection id,
-/// message).
-struct Recorder(Mutex<Vec<(String, String)>>);
-
-impl Recorder {
-    fn count(&self, message: &str) -> usize {
-        self.0
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(collection, seen)| collection == COLLECTION_ID && seen == message)
-            .count()
-    }
-}
-
-#[derive(Default)]
-struct Fields {
-    collection_id: String,
-    message: String,
-}
-
-impl tracing::field::Visit for Fields {
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        match field.name() {
-            "message" => self.message = format!("{value:?}"),
-            "collection_id" => {
-                self.collection_id = format!("{value:?}").trim_matches('"').to_string()
-            }
-            _ => {}
-        }
-    }
-}
-
-impl tracing::Subscriber for Recorder {
-    fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
-        metadata.target() == GUARD_TARGET
-    }
-    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-        tracing::span::Id::from_u64(1)
-    }
-    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
-    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
-    fn event(&self, event: &tracing::Event<'_>) {
-        let mut fields = Fields::default();
-        event.record(&mut fields);
-        self.0
-            .lock()
-            .unwrap()
-            .push((fields.collection_id, fields.message));
-    }
-    fn enter(&self, _: &tracing::span::Id) {}
-    fn exit(&self, _: &tracing::span::Id) {}
-}
-
-fn recorder() -> Arc<Recorder> {
-    static RECORDER: OnceLock<Arc<Recorder>> = OnceLock::new();
-    RECORDER
-        .get_or_init(|| {
-            let recorder = Arc::new(Recorder(Mutex::new(Vec::new())));
-            tracing::subscriber::set_global_default(recorder.clone())
-                .expect("this test binary installs no other global subscriber");
-            recorder
-        })
-        .clone()
-}
 
 fn branchable_schema() -> CollectionVersion {
     CollectionVersion::new(
@@ -160,7 +86,7 @@ async fn merge_blocks_on_a_held_collection_write_guard() {
     // Yield until the merge is observably waiting on the guard, then keep
     // yielding for a bounded window in which it must not acquire it.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while recorder.count(WAITING) == 0 {
+    while recorder.count(COLLECTION_ID, READ_WAITING) == 0 {
         if task.is_finished() {
             let outcome = (&mut task).await;
             panic!("the merge ended without waiting on the collection guard: {outcome:?}");
@@ -176,12 +102,12 @@ async fn merge_blocks_on_a_held_collection_write_guard() {
     }
 
     assert_eq!(
-        recorder.count(WAITING),
+        recorder.count(COLLECTION_ID, READ_WAITING),
         1,
         "the merge must wait on the collection guard exactly once"
     );
     assert_eq!(
-        recorder.count(HOLDING),
+        recorder.count(COLLECTION_ID, READ_HOLDING),
         0,
         "the merge must not acquire the collection guard while a \
          truncate-equivalent write guard is held"
@@ -201,7 +127,7 @@ async fn merge_blocks_on_a_held_collection_write_guard() {
         .expect("merge task panicked")
         .expect("merge should succeed once the guard is released");
     assert_eq!(
-        recorder.count(HOLDING),
+        recorder.count(COLLECTION_ID, READ_HOLDING),
         1,
         "the merge must acquire the collection guard once the drop released it"
     );

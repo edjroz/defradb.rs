@@ -24,9 +24,9 @@ impl<S: Store> DB<S> {
         collection_id: &str,
     ) -> Result<RwLockReadGuardArc<()>> {
         let lock = self.collection_lock(collection_id)?;
-        tracing::trace!(collection_id, "waiting for the collection guard");
+        tracing::trace!(%collection_id, "waiting for the collection guard");
         let guard = lock.read_arc().await;
-        tracing::trace!(collection_id, "holding the collection guard");
+        tracing::trace!(%collection_id, "holding the collection guard");
         Ok(guard)
     }
 
@@ -82,7 +82,10 @@ impl<S: Store> DB<S> {
 
         let mut guards = Vec::with_capacity(collection_ids.len());
         for collection_id in collection_ids {
-            guards.push(self.collection_lock(&collection_id)?.write_arc().await);
+            let lock = self.collection_lock(&collection_id)?;
+            tracing::trace!(%collection_id, "waiting for the collection write guard");
+            guards.push(lock.write_arc().await);
+            tracing::trace!(%collection_id, "holding the collection write guard");
         }
         Ok(guards)
     }

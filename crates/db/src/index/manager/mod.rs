@@ -409,14 +409,23 @@ impl IndexManager {
         let seq_key = IndexIDSequenceKey::new(format!("{}", self.collection_short_id));
         let key_bytes = seq_key.bytes();
 
-        let current = match datastore.get(&key_bytes).await.map_err(Error::Storage)? {
+        let counter = match datastore.get(&key_bytes).await.map_err(Error::Storage)? {
             Some(bytes) if bytes.len() == 4 => {
                 u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
             }
             _ => 0,
         };
+        // The schema is the authority on which ids exist: a counter advanced
+        // through another store, or lost, must never hand out an id an index
+        // already owns.
+        let highest = self
+            .indexes
+            .values()
+            .map(|index| index.description().id)
+            .max()
+            .unwrap_or(0);
 
-        let next_id = current + 1;
+        let next_id = counter.max(highest) + 1;
         datastore
             .set(&key_bytes, &next_id.to_be_bytes())
             .await

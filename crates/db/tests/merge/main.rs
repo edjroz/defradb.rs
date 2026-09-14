@@ -1,5 +1,8 @@
 //! P2P merge, broadcast, document push and searchable-encryption artifacts.
 
+#[path = "../common/mod.rs"]
+mod common;
+
 mod acp_merge_handler;
 mod broadcast_mutator_broadcast;
 mod browser_sync_tests;
