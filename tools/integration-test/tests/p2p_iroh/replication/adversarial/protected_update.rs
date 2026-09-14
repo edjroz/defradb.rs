@@ -1,11 +1,11 @@
 use serial_test::serial;
 
 use super::blocks::{aged, author, update, with_creator, Author, Fragment, Parent, Signing};
-use super::protected::ProtectedNode;
+use super::protected::{Outcome, ProtectedNode};
 use super::receiver::user_by_id;
 
-/// Push `hostile`, then the owner's own rename, and check the hostile age
-/// never landed.
+/// Push `hostile`, then the owner's own rename; once the node has judged the
+/// hostile root, check the hostile age never landed.
 async fn assert_refused(
     node: &ProtectedNode,
     owner: &Author,
@@ -18,6 +18,7 @@ async fn assert_refused(
         .await;
     node.rename_as_owner(owner, doc_id, parent, "Alice (owner)")
         .await;
+    let outcome = node.wait_until_judged(owner, doc_id, &hostile.root).await;
 
     let row =
         user_by_id(&node.client(), Some(&owner.private_key_hex), doc_id).expect("owner reads");
@@ -25,6 +26,7 @@ async fn assert_refused(
         row["age"], 30,
         "a peer's update without the owner's authority changed the protected document: {row}"
     );
+    assert_eq!(outcome, Outcome::Quarantined);
 }
 
 #[tokio::test(flavor = "multi_thread")]
