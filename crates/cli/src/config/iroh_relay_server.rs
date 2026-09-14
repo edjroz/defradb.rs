@@ -57,6 +57,20 @@ impl IrohRelayServerConfig {
                     .into(),
             ));
         }
+        if let Some(public_url) = &self.public_url {
+            let parsed = url::Url::parse(public_url).map_err(|error| {
+                Error::InvalidConfig(format!(
+                    "net.iroh_relay_server.public_url {public_url:?} is not a URL: {error}"
+                ))
+            })?;
+            // With tls, the plain HTTP listener only answers captive-portal
+            // probes, so an http URL would hand peers something that is not a relay.
+            if self.tls.is_some() && parsed.scheme() != "https" {
+                return Err(Error::InvalidConfig(
+                    "net.iroh_relay_server.public_url must be https when tls is set".into(),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -116,6 +130,46 @@ mod tests {
     fn burst_without_rate_is_rejected() {
         let config: IrohRelayServerConfig =
             serde_yaml::from_str(&format!("{MINIMAL}client_rx_max_burst_bytes: 4096\n")).unwrap();
+
+        assert!(config.validate().is_err());
+    }
+
+    const TLS: &str =
+        "tls:\n  https_bind_addr: 0.0.0.0:443\n  cert_path: relay.pem\n  key_path: key.pem\n";
+
+    #[test]
+    fn http_public_url_with_tls_is_rejected() {
+        let config: IrohRelayServerConfig = serde_yaml::from_str(&format!(
+            "{MINIMAL}public_url: http://relay.example.com\n{TLS}"
+        ))
+        .unwrap();
+
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn https_public_url_with_tls_is_accepted() {
+        let config: IrohRelayServerConfig = serde_yaml::from_str(&format!(
+            "{MINIMAL}public_url: https://relay.example.com\n{TLS}"
+        ))
+        .unwrap();
+
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn http_public_url_without_tls_is_accepted() {
+        let config: IrohRelayServerConfig =
+            serde_yaml::from_str(&format!("{MINIMAL}public_url: http://relay.example.com\n"))
+                .unwrap();
+
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn unparsable_public_url_is_rejected() {
+        let config: IrohRelayServerConfig =
+            serde_yaml::from_str(&format!("{MINIMAL}public_url: relay.example.com\n")).unwrap();
 
         assert!(config.validate().is_err());
     }
