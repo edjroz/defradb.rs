@@ -3391,6 +3391,7 @@ dependencies = [
  "lens",
  "libp2p",
  "multihash",
+ "n0-future",
  "p2p",
  "parking_lot 0.12.5",
  "proptest",

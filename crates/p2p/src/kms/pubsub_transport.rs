@@ -369,7 +369,8 @@ impl<T: P2PTransport> PubsubKeyTransport<T> {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl<T: P2PTransport> KeyTransport for PubsubKeyTransport<T> {
     fn name(&self) -> &'static str {
         "pubsub"
@@ -606,7 +607,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl crate::transport::P2PTransport for RacyTransport {
         type ResponseToken = ();
 
@@ -1155,7 +1157,8 @@ mod tests {
     #[tokio::test]
     async fn inbound_request_publishes_reply_on_caller_response_topic() {
         struct FixedIdentityResolver(identity::Did);
-        #[async_trait]
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
         impl PeerIdentityResolver for FixedIdentityResolver {
             async fn resolve(&self, _peer_id: &PeerId) -> Option<identity::Did> {
                 Some(self.0.clone())
@@ -1165,7 +1168,8 @@ mod tests {
         struct EchoHandler {
             seen: Arc<Mutex<Option<kms::PeerIdentity>>>,
         }
-        #[async_trait]
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
         impl IncomingHandler for EchoHandler {
             async fn handle(
                 &self,
@@ -1246,7 +1250,8 @@ mod tests {
     #[tokio::test]
     async fn request_before_handler_is_served_after_install() {
         struct FixedIdentityResolver(identity::Did);
-        #[async_trait]
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
         impl PeerIdentityResolver for FixedIdentityResolver {
             async fn resolve(&self, _peer_id: &PeerId) -> Option<identity::Did> {
                 Some(self.0.clone())
@@ -1256,7 +1261,8 @@ mod tests {
         struct EchoHandler {
             seen: Arc<Mutex<Option<kms::PeerIdentity>>>,
         }
-        #[async_trait]
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
         impl IncomingHandler for EchoHandler {
             async fn handle(
                 &self,

@@ -84,6 +84,8 @@ serde_bytes = "0.11"
 ciborium = "0.2"
 
 web-time = "1.1"
+# Task and timer shims: tokio natively, wasm-bindgen-futures in a browser.
+n0-future = "0.3"
 
 # P2P networking
 # Keep these on the same libp2p-swarm release line.

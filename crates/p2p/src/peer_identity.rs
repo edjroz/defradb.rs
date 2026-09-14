@@ -9,7 +9,8 @@ const IROH_IDENTITY_CACHE_TTL: std::time::Duration = std::time::Duration::from_s
 #[cfg(feature = "iroh-transport")]
 const IROH_IDENTITY_CACHE_CAPACITY: usize = 1024;
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait PeerIdentityResolver: Send + Sync {
     async fn resolve(&self, peer_id: &PeerId) -> Option<identity::Did>;
 }
@@ -28,7 +29,8 @@ impl HandlePeerIdentityResolver {
 }
 
 #[cfg(feature = "libp2p-transport")]
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl PeerIdentityResolver for HandlePeerIdentityResolver {
     async fn resolve(&self, peer_id: &PeerId) -> Option<identity::Did> {
         let peer_id = peer_id.as_str().parse::<libp2p::PeerId>().ok()?;
@@ -177,7 +179,8 @@ impl IrohPeerIdentityResolver {
 }
 
 #[cfg(feature = "iroh-transport")]
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl PeerIdentityResolver for IrohPeerIdentityResolver {
     async fn resolve(&self, peer_id: &PeerId) -> Option<identity::Did> {
         self.state
@@ -197,7 +200,8 @@ impl PeerIdentityResolver for IrohPeerIdentityResolver {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AnonymousResolver;
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl PeerIdentityResolver for AnonymousResolver {
     async fn resolve(&self, _peer_id: &PeerId) -> Option<identity::Did> {
         None

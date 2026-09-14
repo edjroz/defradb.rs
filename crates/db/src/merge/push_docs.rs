@@ -222,7 +222,7 @@ async fn push_existing_docs_with_config_and_allowlist<S: Store + 'static, T: P2P
         if conn_start.elapsed() > conn_timeout {
             return Err("timeout waiting for peer connection before push".to_string());
         }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        n0_future::time::sleep(std::time::Duration::from_millis(50)).await;
     }
 
     let local_peer_id = transport.local_peer_id().to_string();
@@ -433,7 +433,7 @@ async fn push_existing_docs_with_config_and_allowlist<S: Store + 'static, T: P2P
                     replay_collection_id,
                     *doc_short_id,
                     replay_head_cids,
-                    tokio::spawn(async move {
+                    n0_future::task::spawn(async move {
                         let _permit = permit;
                         let mut completed_blocks = 0usize;
                         for (_car_grant, req) in requests {

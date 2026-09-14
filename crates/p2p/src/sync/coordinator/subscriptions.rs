@@ -650,7 +650,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl P2PTransport for RecordingTransport {
         type ResponseToken = ();
 
@@ -956,7 +957,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl P2PCollectionStorage for RecordingCollectionStore {
         async fn add_collection(&self, collection_id: &str) -> crate::Result<()> {
             self.add_batches.fetch_add(1, Ordering::Relaxed);

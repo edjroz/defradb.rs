@@ -225,7 +225,7 @@ impl ReplayPushGate {
         F: Future<Output = p2p::Result<PushLogReply>>,
     {
         while let Some(delay) = self.peer_pacer.consume_or_delay(peer_id.as_str()) {
-            tokio::time::sleep(delay).await;
+            n0_future::time::sleep(delay).await;
         }
 
         let _permit = self
@@ -235,7 +235,7 @@ impl ReplayPushGate {
             .await
             .map_err(|_| ReplayPushSendError::SemaphoreClosed)?;
 
-        tokio::time::timeout(self.send_timeout, send)
+        n0_future::time::timeout(self.send_timeout, send)
             .await
             .map_err(|_| ReplayPushSendError::Timeout {
                 timeout: self.send_timeout,

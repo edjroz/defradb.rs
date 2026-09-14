@@ -23,12 +23,14 @@ pub enum BlockClass {
     Deny,
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait BlockClassifier: Send + Sync {
     async fn classify(&self, cid: &Cid, data: &[u8]) -> BlockClass;
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait BlockReadGate: Send + Sync {
     async fn may_read(&self, identity: &acp::Identity, meta: &BlockAcpMeta) -> bool;
 }
@@ -58,7 +60,8 @@ impl LateBoundServeAcp {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DefaultBlockClassifier;
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl BlockClassifier for DefaultBlockClassifier {
     async fn classify(&self, cid: &Cid, data: &[u8]) -> BlockClass {
         match defra_core::block::generate_cid_from_bytes(data) {
@@ -86,7 +89,8 @@ impl BlockClassifier for DefaultBlockClassifier {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AllowAllBlockReadGate;
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl BlockReadGate for AllowAllBlockReadGate {
     async fn may_read(&self, _identity: &acp::Identity, _meta: &BlockAcpMeta) -> bool {
         true
