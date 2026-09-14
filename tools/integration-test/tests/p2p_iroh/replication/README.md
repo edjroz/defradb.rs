@@ -4,6 +4,7 @@
 
 ## Files
 
+- `adversarial/` — An in-process iroh peer pushes hand-built blocks to a real node: forged signature, bytes not matching their CID, and a mismatched envelope doc ID are refused; an author's signature survives a relay hop. `update_to_another_owners_protected_document_is_refused` is ignored: local ACP merges do not yet check the signer's Update permission. `blocks.rs` builds every block, `peer.rs` pushes them.
 - `collection_sub.rs` — Collection subscription: add/remove/get P2P collections, error cases (all pass)
 - `document.rs` — Document subscription: single/multi-doc sync via iroh (all pass)
 - `document_sub.rs` — Document-level subscriptions: add/remove/sync, error handling (all pass)
