@@ -18,6 +18,7 @@ mod encryption;
 pub(crate) mod error;
 pub mod hook;
 mod lww;
+mod protected_update;
 mod recovery;
 pub mod se_merge;
 mod signature;

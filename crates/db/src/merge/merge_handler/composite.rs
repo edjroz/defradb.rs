@@ -246,6 +246,13 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
                     return Ok(CompositeMergePreparation::Complete(outcome));
                 }
             }
+
+            if let Some(outcome) = self
+                .check_protected_update(cid, block, payload, doc_id, collection.schema())
+                .await?
+            {
+                return Ok(CompositeMergePreparation::Complete(outcome));
+            }
         }
 
         Ok(CompositeMergePreparation::Ready(collection.map(Box::new)))
