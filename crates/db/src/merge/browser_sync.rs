@@ -13,6 +13,7 @@ use crate::event::emission::{TxnBroadcastEvent, TxnBroadcaster};
 use crate::merge::merge_handler::DbMergeHandler;
 use crate::merge::push_docs_common::{load_latest_composite_head_cids, load_push_dag_blocks};
 
+mod collection_commit;
 mod validation;
 
 #[derive(Debug, thiserror::Error)]
@@ -459,7 +460,7 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
             .await
             .map_err(|error| BrowserSyncError::Storage(error.to_string()))?;
 
-        let mut merged = false;
+        let mut merged_roots = Vec::new();
         for root in &document.roots {
             let data = document
                 .blocks
@@ -482,7 +483,7 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
                 .await
                 .map_err(|error| BrowserSyncError::Merge(error.to_string()))?
             {
-                MergeOutcome::Merged => merged = true,
+                MergeOutcome::Merged => merged_roots.push(*root),
                 MergeOutcome::Skipped { terminal: true, .. } => {}
                 MergeOutcome::Skipped { reason, .. } | MergeOutcome::Rejected { reason } => {
                     return Err(BrowserSyncError::Merge(reason));
@@ -497,7 +498,7 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
         // means every block here was. Announcing anyway puts blocks the
         // network already has back on the wire once per document, which is
         // the whole store of a browser that has not been updated.
-        if !merged {
+        if merged_roots.is_empty() {
             return Ok(());
         }
 
@@ -507,7 +508,16 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
             .await
             .map_err(|error| BrowserSyncError::Storage(error.to_string()))?;
 
-        self.announce_merged_document(&document).await;
+        let collection_commits = collection_commit::write_collection_commits(
+            &self.db,
+            &document.doc_id,
+            &document.collection_id,
+            &merged_roots,
+        )
+        .await?;
+
+        self.announce_merged_document(&document, &merged_roots, collection_commits)
+            .await;
         Ok(())
     }
 
@@ -523,7 +533,12 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
     /// The creator is the DID verified from the genesis signature, never the
     /// caller who delivered the push, so a receiving peer registers the owner
     /// this node proved rather than the one its sender claims.
-    async fn announce_merged_document(&self, document: &ValidatedBrowserSyncDocument) {
+    async fn announce_merged_document(
+        &self,
+        document: &ValidatedBrowserSyncDocument,
+        merged_roots: &[Cid],
+        collection_commits: Vec<(Cid, Bytes)>,
+    ) {
         let Some(broadcaster) = self.broadcaster.as_ref() else {
             return;
         };
@@ -562,7 +577,10 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
                     doc_cid: *root,
                     doc_block: block,
                     document_json: document_json.clone(),
-                    collection_block: None,
+                    collection_block: merged_roots
+                        .iter()
+                        .position(|merged| merged == root)
+                        .and_then(|index| collection_commits.get(index).cloned()),
                     creator_did: document.verified_genesis_creator.clone(),
                 })
                 .await;
