@@ -1,4 +1,16 @@
 //! PushLog processing and block storage.
+//!
+//! At the pending-DAG cap a push is acked only when it costs no new slot: a
+//! root already registered or persisted, a scope head that refreshes or
+//! supersedes the current root (which it evicts) or is covered by it, and a
+//! descendant a registered root awaits. Everything else is nacked so the
+//! sender retries. Descendants are not exempt as a class: anything that fails
+//! DAG-CBOR decode is reported `Descendant` by `announced_block_kind`, so a
+//! blanket exemption would admit unbounded CID-valid garbage past the cap
+//! into verification and storage. Pinned by
+//! `at_global_cap_a_cid_valid_malformed_block_is_shed`,
+//! `at_global_cap_an_unawaited_descendant_is_shed`, and
+//! `pending_capacity_sheds_unrelated_blocks_but_accepts_missing_dependency`.
 
 use std::collections::HashSet;
 use std::time::Duration;
