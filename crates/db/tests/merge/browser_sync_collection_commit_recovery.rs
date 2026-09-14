@@ -254,3 +254,54 @@ async fn a_peer_merges_the_unsigned_commit_it_was_announced() {
         .unwrap()
         .is_empty());
 }
+
+/// A browser that created and then updated a document before it synced pushes
+/// both revisions as one payload whose only root is the update. The merge walks
+/// the unmerged genesis first, and the commit belongs to the root alone: one
+/// commit per push root, linking the root the push named.
+#[tokio::test]
+async fn a_push_carrying_unmerged_history_commits_once_for_its_root() {
+    let browser = branchable_node().await;
+    let central = branchable_node().await;
+    let created = AutoCommitMutator::new(browser.clone())
+        .create(COLLECTION, command("sensor-7", 1))
+        .await
+        .unwrap();
+    let doc_id = created.doc_id.to_string();
+    let mut update = command("sensor-7", 2);
+    update.set_id(DocID::from_string(&doc_id).unwrap());
+    AutoCommitMutator::new(browser.clone())
+        .update(COLLECTION, update, HashSet::from(["seq".to_string()]))
+        .await
+        .unwrap();
+    let pushed = authored_elsewhere(&browser, &doc_id).await;
+    assert_eq!(pushed.roots.len(), 1);
+
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    BrowserSyncEngine::with_broadcaster(
+        central.clone(),
+        Arc::new(CapturingBroadcaster {
+            events: events.clone(),
+        }),
+    )
+    .apply_document(&pushed, "browser")
+    .await
+    .unwrap();
+
+    let heads = collection_heads(&central).await;
+    assert_eq!(heads.len(), 1);
+    let head = load_block(&central, &heads[0]).await;
+    assert_eq!(head.heads.clone().unwrap_or_default(), Vec::<Cid>::new());
+    assert_eq!(
+        roots_in_collection_dag(&central).await,
+        HashSet::from([pushed.roots[0].clone()]),
+        "the push named one root, so the collection gains one commit, for it"
+    );
+    let events = events.lock().unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].collection_block.as_ref().map(|(cid, _)| *cid),
+        Some(heads[0]),
+        "the announcement carries the root's commit, not an ancestor's"
+    );
+}

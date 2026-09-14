@@ -376,6 +376,7 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
                             &payload,
                             metadata,
                             from_collection,
+                            is_root,
                             &doc_id,
                             collection.map(|collection| *collection),
                         )
@@ -398,6 +399,7 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
         payload: &defra_core::block::CompositeDeltaPayload,
         metadata: &BlockMetadata<'_>,
         from_collection: bool,
+        is_root: bool,
         doc_id_str: &str,
         collection_lookup: Option<Collection>,
     ) -> std::result::Result<MergeOutcome, MergeError> {
@@ -548,7 +550,13 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
                 let collection_commit = match commit_views {
                     Ok((blockstore, headstore)) => {
                         match self
-                            .author_collection_commit(&blockstore, &headstore, &context, &state)
+                            .author_collection_commit(
+                                &blockstore,
+                                &headstore,
+                                &context,
+                                &state,
+                                is_root,
+                            )
                             .await
                         {
                             Ok(commit) => commit,
