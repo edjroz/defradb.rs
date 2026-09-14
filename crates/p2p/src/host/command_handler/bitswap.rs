@@ -66,6 +66,9 @@ impl<S: Store> P2PHost<S> {
         let task_handle = tokio::spawn(async move {
             let _ = registered_rx.await;
 
+            #[cfg(feature = "test-utils")]
+            crate::testutil::block_started_fetch();
+
             // Add each provider for each missing CID
             for cid in &missing_cids {
                 for provider in &providers_list {
@@ -191,10 +194,10 @@ impl<S: Store> P2PHost<S> {
         #[cfg(feature = "test-utils")]
         crate::testutil::stall_before_query_registration().await;
 
-        // Store the abort handle for cancellation support
+        // Store the join handle for cancellation support
         self.bitswap_queries
             .lock()
-            .insert(query_id, (task_handle.abort_handle(), session_id));
+            .insert(query_id, (task_handle, session_id));
         let _ = registered_tx.send(());
 
         if response.send(Ok(query_id)).is_err() {
@@ -207,14 +210,19 @@ impl<S: Store> P2PHost<S> {
         query_id: QueryId,
         response: tokio::sync::oneshot::Sender<bool>,
     ) {
-        let cancelled = if let Some((abort_handle, session_id)) =
+        let cancelled = if let Some((task_handle, session_id)) =
             self.bitswap_queries.lock().remove(&query_id)
         {
             debug!(query_id = ?query_id, "Cancelling Bitswap query");
-            abort_handle.abort();
-            // Aborting drops the task's session handle without stopping it.
+            task_handle.abort();
             let client = self.swarm.behaviour().bitswap.client().clone();
             tokio::spawn(async move {
+                // `abort` only schedules cancellation, and `Session::stop`
+                // refuses to run while any other handle to the session is
+                // alive. Joining the aborted task is what drops its clone;
+                // it resolves with a cancelled `JoinError` rather than
+                // hanging.
+                let _ = task_handle.await;
                 if let Err(e) = client.stop_session(session_id).await {
                     warn!(query_id = ?query_id, error = %e, "Failed to stop cancelled Bitswap session");
                 }

@@ -93,6 +93,21 @@ pub async fn stall_before_query_registration() {
     }
 }
 
+/// Milliseconds a started Bitswap fetch task blocks its worker thread while
+/// holding its `Session` clone. An `abort` cannot land while a task is off an
+/// await point, so tests set this to force the interleaving where a cancel's
+/// `stop_session` runs against a still-live clone.
+pub static BITSWAP_FETCH_BLOCK_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Blocks the current worker thread for [`BITSWAP_FETCH_BLOCK_MS`].
+pub fn block_started_fetch() {
+    let ms = BITSWAP_FETCH_BLOCK_MS.load(std::sync::atomic::Ordering::Relaxed);
+    if ms > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
