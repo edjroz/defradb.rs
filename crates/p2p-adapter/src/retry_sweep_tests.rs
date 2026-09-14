@@ -108,6 +108,9 @@ impl TransportDocPusher for ScriptedPusher {
     fn get_collection_id(&self, _name: &str) -> Option<String> {
         unreachable!()
     }
+    fn get_collection_name(&self, _collection_id: &str) -> P2PResult<Option<String>> {
+        unreachable!()
+    }
     fn list_collections(&self) -> P2PResult<Vec<String>> {
         unreachable!()
     }
