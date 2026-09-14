@@ -86,7 +86,7 @@ defra-perf = { path = "../../tools/perf" }
 # Behind a feature so a plain `--tests` run cannot report it as passing.
 [[test]]
 name = "p2p_relay"
-path = "tests/p2p_relay.rs"
+path = "tests/p2p_relay/main.rs"
 required-features = ["relay-e2e"]
 
 [features]
