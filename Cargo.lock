@@ -3597,6 +3597,7 @@ dependencies = [
  "iroh",
  "lens",
  "libp2p",
+ "n0-future",
  "p2p",
  "replication-filter",
  "schema",
@@ -3607,6 +3608,7 @@ dependencies = [
  "storage",
  "tokio",
  "tracing",
+ "web-time",
  "zeroize",
 ]
 
