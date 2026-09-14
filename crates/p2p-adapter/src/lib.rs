@@ -9,6 +9,10 @@ use zeroize::Zeroizing;
 mod doc_sync;
 #[cfg(feature = "iroh")]
 mod iroh;
+#[cfg(feature = "iroh")]
+mod iroh_event_handler;
+#[cfg(feature = "iroh")]
+mod iroh_restore;
 #[cfg(feature = "libp2p")]
 mod libp2p;
 pub mod manage;
@@ -25,6 +29,10 @@ mod version_syncer;
 
 #[cfg(feature = "iroh")]
 pub use iroh::IrohP2PAdapter;
+#[cfg(feature = "iroh")]
+pub use iroh_event_handler::run_iroh_event_handler;
+#[cfg(feature = "iroh")]
+pub use iroh_restore::restore_iroh_p2p_state;
 #[cfg(feature = "libp2p")]
 pub use libp2p::{CollectionLookup, P2PAdapter, VersionSyncer};
 pub use read_gate::{DbBlockClassifier, DbBlockReadGate};

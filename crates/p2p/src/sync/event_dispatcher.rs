@@ -10,8 +10,8 @@ use std::future::Future;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use n0_future::task::{JoinError, JoinSet};
 use tokio::sync::{mpsc, Semaphore};
-use tokio::task::JoinSet;
 
 use crate::transport::TransportEvent;
 
@@ -215,9 +215,12 @@ pub(crate) async fn run_event_dispatcher<E, Handler, HandlerFuture>(
     diagnostics: Arc<DispatchDiagnostics>,
     handler: Handler,
 ) where
-    E: DispatchEvent + Send + 'static,
-    Handler: Fn(E, DispatchAdmission) -> HandlerFuture + Clone + Send + 'static,
-    HandlerFuture: Future<Output = ()> + Send + 'static,
+    E: DispatchEvent + defra_core::thread_bounds::MaybeSend + 'static,
+    Handler: Fn(E, DispatchAdmission) -> HandlerFuture
+        + Clone
+        + defra_core::thread_bounds::MaybeSend
+        + 'static,
+    HandlerFuture: Future<Output = ()> + defra_core::thread_bounds::MaybeSend + 'static,
 {
     let request_slots = Arc::new(Semaphore::new(MAX_ACTIVE_REQUESTS));
     let recovery_slots = Arc::new(Semaphore::new(MAX_ACTIVE_RECOVERY));
@@ -228,7 +231,8 @@ pub(crate) async fn run_event_dispatcher<E, Handler, HandlerFuture>(
     loop {
         tokio::select! {
             biased;
-            result = tasks.join_next(), if !tasks.is_empty() => {
+            // The browser JoinSet has no join_next; poll_join_next exists on both.
+            result = std::future::poll_fn(|cx| tasks.poll_join_next(cx)), if !tasks.is_empty() => {
                 report_join_result(result.expect("dispatcher task set was non-empty"));
             }
             event = events.recv() => {
@@ -309,12 +313,12 @@ pub(crate) async fn run_event_dispatcher<E, Handler, HandlerFuture>(
     }
 
     tasks.abort_all();
-    while let Some(result) = tasks.join_next().await {
+    while let Some(result) = std::future::poll_fn(|cx| tasks.poll_join_next(cx)).await {
         report_join_result(result);
     }
 }
 
-fn report_join_result(result: Result<(), tokio::task::JoinError>) {
+fn report_join_result(result: Result<(), JoinError>) {
     if let Err(error) = result {
         if !error.is_cancelled() {
             tracing::error!(%error, "transport request task panicked");

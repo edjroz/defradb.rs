@@ -330,7 +330,8 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
     let coord_for_events = coordinator.clone();
     let store_for_events = store.clone();
     let event_handler_task = tokio::spawn(async move {
-        run_event_handler(iroh_events, coord_for_events, store_for_events).await;
+        defra_p2p_adapter::run_iroh_event_handler(iroh_events, coord_for_events, store_for_events)
+            .await;
     });
     let doc_pusher_impl = Arc::new(defra_p2p_adapter::DbTransportDocPusher::new(
         database.clone(),
@@ -356,7 +357,8 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
     let broadcast_mutator_for_acp = broadcast_mutator.clone();
     let mutator: Arc<dyn query::DocMutator> = broadcast_mutator;
 
-    let restored_doc_ids = restore_iroh_p2p_state(store.clone(), &transport, &coordinator).await;
+    let restored_doc_ids =
+        defra_p2p_adapter::restore_iroh_p2p_state(store.clone(), &transport, &coordinator).await;
 
     let peer_id = transport.local_peer_id().to_string();
     tracing::info!(target: "defra_node", peer_id = %peer_id, "P2P started (IROH/QUIC)");
@@ -401,112 +403,4 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
             merge_handler_inner_for_kms.set_kms(kms);
         })),
     })
-}
-
-async fn run_event_handler<B: blockstore::Blockstore + Send + Sync + 'static>(
-    events: tokio::sync::mpsc::Receiver<
-        p2p::TransportEvent<<p2p::iroh::IrohTransport as P2PTransport>::ResponseToken>,
-    >,
-    coordinator: Arc<p2p::sync::SyncCoordinator<B, p2p::iroh::IrohTransport>>,
-    store: Arc<impl storage::corekv::Store + 'static>,
-) {
-    let handler_coordinator = coordinator.clone();
-    coordinator.run_event_dispatcher(events, move |event, admission| {
-        let coordinator = handler_coordinator.clone();
-        let store = store.clone();
-        async move {
-            let event_kind = event.kind();
-            if let p2p::TransportEvent::PeerConnected(peer_id) = &event {
-                defra_p2p_adapter::activate_retry_peer(store, peer_id).await;
-            }
-
-            if let Err(e) = coordinator
-                .handle_transport_event_with_admission(event, admission)
-                .await
-            {
-                if e.is_rate_limited() {
-                    tracing::debug!(target: "defra_node", event_kind, error = %e, "P2P rate-limited");
-                } else if e.is_retriable() {
-                    tracing::warn!(target: "defra_node", event_kind, error = %e, "P2P transport event failed after retries");
-                } else {
-                    tracing::error!(target: "defra_node", event_kind, error = %e, "P2P event handler error");
-                }
-            }
-        }
-    })
-    .await;
-}
-
-async fn restore_iroh_p2p_state<S, B>(
-    store: Arc<S>,
-    transport: &p2p::iroh::IrohTransport,
-    coordinator: &Arc<p2p::sync::IrohSyncCoordinator<B>>,
-) -> std::collections::HashSet<String>
-where
-    S: storage::corekv::Store + 'static,
-    B: blockstore::Blockstore + 'static,
-{
-    let peerstore = storage::stores::Peerstore::new(store);
-
-    match peerstore.list_replicators().await {
-        Ok(entries) => {
-            for (peer_id_str, data) in entries {
-                let replicator = match p2p::ReplicatorInfo::from_bytes(&data) {
-                    Ok(replicator) => replicator,
-                    Err(error) => {
-                        tracing::warn!(target: "defra_node",
-                            peer_id = %peer_id_str,
-                            error = %error,
-                            "failed to decode persisted P2P replicator"
-                        );
-                        continue;
-                    }
-                };
-                let peer_id = p2p::transport::PeerId::new(replicator.peer_id_str().to_string());
-                // Restore the complete durable record. Reconstructing it from
-                // collection IDs silently discarded filters and addresses,
-                // so an idempotent post-restart AddReplicator looked like a
-                // filter change and launched a full existing-document replay.
-                // This matches Go's loadAndPublishReplicators behavior: the
-                // persisted replicator is the startup source of truth.
-                if let Err(error) = coordinator
-                    .create_replicator_info(&peer_id, replicator, false)
-                    .await
-                {
-                    tracing::warn!(target: "defra_node",
-                        peer_id = %peer_id,
-                        error = %error,
-                        "failed to restore persisted P2P replicator"
-                    );
-                }
-            }
-        }
-        Err(error) => {
-            tracing::warn!(target: "defra_node", error = %error, "failed to load persisted P2P replicators")
-        }
-    }
-
-    let mut restored_doc_ids = std::collections::HashSet::new();
-    match peerstore.load_documents().await {
-        Ok(doc_ids) => {
-            for doc_id in doc_ids {
-                if let Err(error) = transport
-                    .subscribe(p2p::topics::DefraTopic::document(&doc_id))
-                    .await
-                {
-                    tracing::warn!(target: "defra_node",
-                        doc_id = %doc_id,
-                        error = %error,
-                        "failed to restore P2P document subscription"
-                    );
-                }
-                restored_doc_ids.insert(doc_id);
-            }
-        }
-        Err(error) => {
-            tracing::warn!(target: "defra_node", error = %error, "failed to load persisted P2P document subscriptions");
-        }
-    }
-
-    restored_doc_ids
 }

@@ -764,9 +764,13 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
         events: tokio::sync::mpsc::Receiver<E>,
         handler: Handler,
     ) where
-        E: crate::sync::DispatchEvent + Send + 'static,
-        Handler: Fn(E, crate::sync::DispatchAdmission) -> HandlerFuture + Clone + Send + 'static,
-        HandlerFuture: std::future::Future<Output = ()> + Send + 'static,
+        E: crate::sync::DispatchEvent + defra_core::thread_bounds::MaybeSend + 'static,
+        Handler: Fn(E, crate::sync::DispatchAdmission) -> HandlerFuture
+            + Clone
+            + defra_core::thread_bounds::MaybeSend
+            + 'static,
+        HandlerFuture:
+            std::future::Future<Output = ()> + defra_core::thread_bounds::MaybeSend + 'static,
     {
         crate::sync::event_dispatcher::run_event_dispatcher(
             events,
