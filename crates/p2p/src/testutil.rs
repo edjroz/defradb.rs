@@ -78,6 +78,21 @@ impl Store for MockBitswapStore {
     }
 }
 
+/// Milliseconds to stall between spawning a Bitswap fetch task and registering
+/// its query. Tests set this to force the fetch to finish first, which is the
+/// interleaving that used to leave a completed query registered forever.
+pub static BITSWAP_REGISTER_STALL_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Stalls for [`BITSWAP_REGISTER_STALL_MS`], yielding to the runtime so the
+/// just-spawned fetch task is free to run to completion meanwhile.
+pub async fn stall_before_query_registration() {
+    let ms = BITSWAP_REGISTER_STALL_MS.load(std::sync::atomic::Ordering::Relaxed);
+    if ms > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

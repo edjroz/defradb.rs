@@ -55,8 +55,17 @@ impl<S: Store> P2PHost<S> {
         let session_id = session.id();
         let queries = Arc::clone(&self.bitswap_queries);
 
+        // The fetch task removes its own registry entry when it ends, so a task
+        // that finished before the parent registered it would have that entry
+        // re-added with nothing left to remove it: the map would grow by one per
+        // fetch, and a long-gone query would still report as cancellable. Gate
+        // the task on registration having happened.
+        let (registered_tx, registered_rx) = tokio::sync::oneshot::channel::<()>();
+
         // Spawn async task to fetch blocks (with cancellation support)
         let task_handle = tokio::spawn(async move {
+            let _ = registered_rx.await;
+
             // Add each provider for each missing CID
             for cid in &missing_cids {
                 for provider in &providers_list {
@@ -179,10 +188,14 @@ impl<S: Store> P2PHost<S> {
             queries.lock().remove(&query_id);
         });
 
+        #[cfg(feature = "test-utils")]
+        crate::testutil::stall_before_query_registration().await;
+
         // Store the abort handle for cancellation support
         self.bitswap_queries
             .lock()
             .insert(query_id, (task_handle.abort_handle(), session_id));
+        let _ = registered_tx.send(());
 
         if response.send(Ok(query_id)).is_err() {
             debug!(cid = %cid, "BitswapSync command response dropped - caller cancelled");
