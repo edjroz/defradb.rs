@@ -6,6 +6,7 @@
 mod authorization;
 mod batch;
 mod collection;
+mod collection_commit;
 pub mod composite;
 mod composite_fields;
 mod composite_heads;
