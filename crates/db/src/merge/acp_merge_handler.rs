@@ -238,6 +238,16 @@ impl<S: Store, B: blockstore::Blockstore> AcpMergeHandler<S, B> {
         self.hook.set_strict_replicated_doc_access(strict);
     }
 
+    pub fn document_acp(&self) -> Option<&Arc<dyn DocumentACP>> {
+        self.hook.document_acp()
+    }
+
+    pub fn strict_replicated_doc_access(&self) -> bool {
+        self.hook
+            .strict_replicated_doc_access
+            .load(Ordering::Relaxed)
+    }
+
     pub fn inner(&self) -> &Arc<DbMergeHandler<S, B>> {
         &self.inner
     }

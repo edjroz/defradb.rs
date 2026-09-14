@@ -41,11 +41,12 @@ impl P2PRuntime {
             ..IrohEndpointConfig::default()
         };
         let store = Arc::clone(database.store());
-        let peer = IrohPeer::start(store, database, event_bus, IrohPeerConfig::new(endpoint))
+        // A browser's document ACP is its own, never an authoritative shared
+        // one, so the config's non-strict default stands.
+        let config = IrohPeerConfig::new(endpoint, document_acp);
+        let peer = IrohPeer::start(store, database, event_bus, config)
             .await
             .map_err(|error| WasmError::P2P(format!("failed to start the peer: {error}")))?;
-        // A browser's document ACP is its own, never an authoritative shared one.
-        peer.wire_document_acp(document_acp, false);
 
         Ok(Self {
             endpoint_id: peer.local_peer_id.clone(),

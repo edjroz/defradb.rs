@@ -7,9 +7,9 @@ use p2p::sync::SyncConfig;
 #[cfg(feature = "libp2p")]
 use p2p::topics::DefraTopic;
 
+use crate::node::WireKmsCallback;
 #[cfg(feature = "libp2p")]
-use crate::node::EmbeddedBlockstore;
-use crate::node::{EmbeddedMergeHandler, WireDocumentAcpCallback, WireKmsCallback};
+use crate::node::{EmbeddedBlockstore, WireDocumentAcpCallback};
 #[cfg(feature = "libp2p")]
 use crate::node_recovery::{restore_libp2p_documents, restore_libp2p_replicators};
 #[cfg(feature = "libp2p")]
@@ -26,10 +26,10 @@ use defra_p2p_adapter::{DbTransportDocPusher, DbVersionSyncer, P2PAdapter, Trans
 #[cfg(any(feature = "libp2p", feature = "iroh"))]
 use defra_p2p_adapter::{ReplicatorPushOptions, ReplicatorPushOptionsState};
 
-pub(crate) struct P2PSetup<S: storage::corekv::Store + 'static> {
+pub(crate) struct P2PSetup {
     pub system: Arc<ManagedP2PSystem>,
     pub mutator: Arc<dyn query::DocMutator>,
-    pub merge_handler: Arc<EmbeddedMergeHandler<S>>,
+    #[cfg(feature = "libp2p")]
     pub wire_document_acp: Option<WireDocumentAcpCallback>,
     /// Forwards committed `/tx` writes to P2P peers; mirrors what the CLI
     /// `P2PSetup` exposes. Without this, transactional writes commit locally
@@ -41,9 +41,9 @@ pub(crate) struct P2PSetup<S: storage::corekv::Store + 'static> {
     /// This node's transport-level peer id (stringified). node.rs binds it
     /// into the KMS so served ECIES replies carry the correct AAD peer id.
     pub local_peer_id: String,
-    /// Defers wiring the late-built KMS into the inner merge handler
-    /// (mirrors `wire_document_acp`). NAC/document_acp aren't available when
-    /// the P2P system is created, so the KMS is built later in node.rs.
+    /// Defers wiring the late-built KMS into the inner merge handler. NAC
+    /// isn't available when the P2P system is created, so the KMS is built
+    /// later in node.rs.
     pub wire_kms: Option<WireKmsCallback>,
     /// SE remote query transport (owner-queries-replicator, #976). Lets this
     /// embedded node act as an SE query OWNER, fanning `encrypted_<Collection>`
@@ -82,7 +82,7 @@ pub(crate) async fn setup_libp2p<S>(
     event_bus: Arc<dyn events::Bus>,
     config: &Libp2pConfig,
     sync_config: SyncConfig,
-) -> Result<P2PSetup<S>>
+) -> Result<P2PSetup>
 where
     S: storage::corekv::Store + 'static,
 {
@@ -312,6 +312,7 @@ where
     let serve_acp_for_acp = serve_acp.clone();
     let handle_for_acp = handle.clone();
     let broadcast_mutator_for_acp = replication.broadcast_mutator.clone();
+    let merge_handler_for_acp = replication.merge_handler.clone();
     let broadcast_mutator_for_se = replication.broadcast_mutator.clone();
     // Lazy SE-key handle: teed by the callback below (runtime provisioning),
     // read by the owner/querier transport at query time (#976).
@@ -382,21 +383,22 @@ where
     Ok(P2PSetup {
         system,
         mutator: replication.broadcast_mutator,
-        merge_handler: replication.merge_handler,
         txn_broadcaster: replication.txn_broadcaster,
         kms_transport: kms_transport as Arc<dyn kms::KeyTransport>,
         local_peer_id,
         wire_kms: Some(Box::new(move |kms| {
             merge_handler_inner_for_kms.set_kms(kms);
         })),
-        wire_document_acp: Some(Box::new(move |acp| {
+        wire_document_acp: Some(Box::new(move |acp, strict| {
             serve_acp_for_acp.set(p2p::bitswap::ServeAcp {
                 resolver: Arc::new(p2p::HandlePeerIdentityResolver::new(handle_for_acp)),
                 gate: defra_p2p_adapter::DbBlockReadGate::new_arc(acp.clone()),
             });
             coordinator_for_acp.set_document_acp(acp.clone());
             doc_pusher_for_acp.set_document_acp(acp.clone());
-            broadcast_mutator_for_acp.set_document_acp(acp);
+            broadcast_mutator_for_acp.set_document_acp(acp.clone());
+            merge_handler_for_acp.set_document_acp(acp);
+            merge_handler_for_acp.set_strict_replicated_doc_access(strict);
         })),
         se_transport,
         manage_hooks,
@@ -431,6 +433,7 @@ fn tee_se_key(handle: &db::merge::SeKeyHandle, options: &ReplicatorPushOptions) 
 }
 
 #[cfg(feature = "iroh")]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn setup_iroh<S>(
     store: Arc<S>,
     database: Arc<db::DB<S>>,
@@ -438,7 +441,9 @@ pub(crate) async fn setup_iroh<S>(
     config: &crate::IrohConfig,
     sync_config: SyncConfig,
     node_identity: Option<Arc<identity::RawIdentity>>,
-) -> Result<P2PSetup<S>>
+    document_acp: Arc<dyn acp::DocumentACP>,
+    strict_replicated_doc_access: bool,
+) -> Result<P2PSetup>
 where
     S: storage::corekv::Store + 'static,
 {
@@ -447,17 +452,21 @@ where
 
     let secret_key =
         p2p::iroh::load_or_generate_secret_key(config.secret_key_path.as_deref()).await?;
-    let mut peer_config = IrohPeerConfig::new(p2p::iroh::IrohEndpointConfig {
-        secret_key,
-        node_identity,
-        relay_mode: config.relay_mode.clone(),
-        discovery: config.discovery.clone(),
-        bind_port: config.bind_port,
-        bind_addr: config.bind_addr,
-        max_concurrent_multipath_paths: config.max_concurrent_multipath_paths,
-        gossip_heal: p2p::iroh::GossipHealConfig::from_env(),
-        allowlist: config.allowlist.clone(),
-    });
+    let mut peer_config = IrohPeerConfig::new(
+        p2p::iroh::IrohEndpointConfig {
+            secret_key,
+            node_identity,
+            relay_mode: config.relay_mode.clone(),
+            discovery: config.discovery.clone(),
+            bind_port: config.bind_port,
+            bind_addr: config.bind_addr,
+            max_concurrent_multipath_paths: config.max_concurrent_multipath_paths,
+            gossip_heal: p2p::iroh::GossipHealConfig::from_env(),
+            allowlist: config.allowlist.clone(),
+        },
+        document_acp,
+    );
+    peer_config.strict_replicated_doc_access = strict_replicated_doc_access;
     peer_config.sync = sync_config;
     let replicator_push_options = ReplicatorPushOptionsState::default();
     peer_config.replicator_push_options = Some(replicator_push_options.clone());
@@ -508,19 +517,15 @@ where
     system.set_manage_requester(Arc::clone(&peer.manage.requester));
 
     let merge_handler_for_kms = Arc::clone(&peer.replication.merge_handler_inner);
-    let peer = Arc::new(peer);
-    let peer_for_acp = Arc::clone(&peer);
     Ok(P2PSetup {
         system,
         mutator: peer.replication.broadcast_mutator.clone(),
-        merge_handler: Arc::clone(&peer.replication.merge_handler),
         txn_broadcaster: Arc::clone(&peer.replication.txn_broadcaster),
         kms_transport: peer.kms_transport.clone() as Arc<dyn kms::KeyTransport>,
         local_peer_id: peer.local_peer_id.clone(),
         wire_kms: Some(Box::new(move |kms| merge_handler_for_kms.set_kms(kms))),
-        wire_document_acp: Some(Box::new(move |acp| {
-            peer_for_acp.wire_document_acp(acp, false);
-        })),
+        #[cfg(feature = "libp2p")]
+        wire_document_acp: None,
         se_transport,
         manage_hooks: peer.manage.hooks.clone(),
         manage_controller: Arc::clone(&peer.ops),

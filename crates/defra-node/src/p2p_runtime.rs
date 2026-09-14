@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use crate::P2PConfig;
 
-type WireDocumentAcpCallback = Box<dyn FnOnce(Arc<dyn acp::DocumentACP>, bool)>;
 type WireKmsCallback = Box<dyn FnOnce(Arc<dyn kms::KmsService>) + Send>;
 
 /// The running peer's shutdown; see [`P2PLifecycle::shutdown`].
@@ -25,7 +24,6 @@ pub(super) struct P2PSetupResult {
     pub(super) ops: Arc<dyn defra_http::P2POperations>,
     pub(super) lifecycle: Option<P2PLifecycle>,
     pub(super) mutator: Arc<dyn query::DocMutator>,
-    pub(super) wire_document_acp: Option<WireDocumentAcpCallback>,
     pub(super) txn_broadcaster: Arc<dyn db::event::emission::TxnBroadcaster>,
     /// Type-erased KMS transport for this node's P2P system. lib.rs adds it
     /// to the DefraKms transports list and installs the serve handler.
@@ -43,20 +41,26 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
     event_bus: Arc<dyn events::Bus>,
     config: &P2PConfig,
     node_identity: Option<Arc<identity::RawIdentity>>,
+    document_acp: Arc<dyn acp::DocumentACP>,
+    strict_replicated_doc_access: bool,
 ) -> anyhow::Result<P2PSetupResult> {
     let secret_key =
         p2p::iroh::load_or_generate_secret_key(config.secret_key_path.as_deref()).await?;
-    let mut peer_config = defra_p2p_adapter::IrohPeerConfig::new(p2p::iroh::IrohEndpointConfig {
-        secret_key,
-        node_identity,
-        relay_mode: config.relay_mode.clone(),
-        discovery: config.discovery.clone(),
-        bind_port: Some(config.port),
-        bind_addr: config.bind_addr,
-        max_concurrent_multipath_paths: config.max_concurrent_multipath_paths,
-        gossip_heal: p2p::iroh::GossipHealConfig::from_env(),
-        allowlist: config.allowlist.clone(),
-    });
+    let mut peer_config = defra_p2p_adapter::IrohPeerConfig::new(
+        p2p::iroh::IrohEndpointConfig {
+            secret_key,
+            node_identity,
+            relay_mode: config.relay_mode.clone(),
+            discovery: config.discovery.clone(),
+            bind_port: Some(config.port),
+            bind_addr: config.bind_addr,
+            max_concurrent_multipath_paths: config.max_concurrent_multipath_paths,
+            gossip_heal: p2p::iroh::GossipHealConfig::from_env(),
+            allowlist: config.allowlist.clone(),
+        },
+        document_acp,
+    );
+    peer_config.strict_replicated_doc_access = strict_replicated_doc_access;
     peer_config.sync = p2p::sync::SyncConfig {
         max_concurrent_dag_fetches: config.max_concurrent_dag_fetches,
         max_concurrent_push_tasks: config.max_concurrent_push_tasks,
@@ -78,8 +82,6 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
     tracing::info!(target: "defra_node", peer_id = %peer.local_peer_id, "P2P started (IROH/QUIC)");
 
     let merge_handler_for_kms = Arc::clone(&peer.replication.merge_handler_inner);
-    let peer = Arc::new(peer);
-    let peer_for_acp = Arc::clone(&peer);
     Ok(P2PSetupResult {
         ops: Arc::clone(&peer.ops),
         lifecycle: Some(P2PLifecycle {
@@ -89,9 +91,6 @@ pub(super) async fn setup_p2p<S: storage::corekv::Store + 'static>(
         txn_broadcaster: Arc::clone(&peer.replication.txn_broadcaster),
         kms_transport: peer.kms_transport.clone() as Arc<dyn kms::KeyTransport>,
         local_peer_id: peer.local_peer_id.clone(),
-        wire_document_acp: Some(Box::new(move |acp, strict| {
-            peer_for_acp.wire_document_acp(acp, strict);
-        })),
         wire_kms: Some(Box::new(move |kms| merge_handler_for_kms.set_kms(kms))),
     })
 }

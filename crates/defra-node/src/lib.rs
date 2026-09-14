@@ -1403,6 +1403,14 @@ impl NodeBuilder {
             .transpose()
             .map_err(anyhow::Error::msg)?;
 
+        let acp_setup =
+            node_acp::create_document_acp(store.clone(), persistence, &document_acp_config).await?;
+        let document_acp = acp_setup.document_acp.clone();
+        #[cfg(feature = "sourcehub")]
+        let _strict_replicated_doc_access = acp_setup.sourcehub_acp.is_some();
+        #[cfg(not(feature = "sourcehub"))]
+        let _strict_replicated_doc_access = false;
+
         // P2P setup (affects mutator choice)
         #[cfg(feature = "p2p")]
         let mut p2p_result = if let Some(p2p_cfg) = p2p_config {
@@ -1413,6 +1421,8 @@ impl NodeBuilder {
                     event_bus.clone(),
                     &p2p_cfg,
                     node_p2p_identity,
+                    document_acp.clone(),
+                    _strict_replicated_doc_access,
                 )
                 .await?,
             )
@@ -1456,22 +1466,6 @@ impl NodeBuilder {
             );
             registry.start_stale_transaction_cleanup(cleanup.max_idle_age, cleanup.sweep_interval)
         });
-
-        let acp_setup =
-            node_acp::create_document_acp(store.clone(), persistence, &document_acp_config).await?;
-        let document_acp = acp_setup.document_acp.clone();
-        #[cfg(feature = "sourcehub")]
-        let _strict_replicated_doc_access = acp_setup.sourcehub_acp.is_some();
-        #[cfg(not(feature = "sourcehub"))]
-        let _strict_replicated_doc_access = false;
-
-        #[cfg(feature = "p2p")]
-        if let Some(wire_document_acp) = p2p_result
-            .as_mut()
-            .and_then(|result| result.wire_document_acp.take())
-        {
-            wire_document_acp(document_acp.clone(), _strict_replicated_doc_access);
-        }
 
         // Build the KMS once document ACP exists (same ordering as the CLI
         // runtime and crates/embedded/src/node.rs): blockstore-backed key

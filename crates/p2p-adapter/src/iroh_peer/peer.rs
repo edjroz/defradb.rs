@@ -42,8 +42,6 @@ pub struct IrohPeer<S: Store + 'static> {
     pub kms_transport: Arc<p2p::kms::PubsubKeyTransport<IrohTransport>>,
     pub local_peer_id: String,
     pub shutdown: IrohPeerShutdown,
-    doc_pusher_acp: Arc<DbTransportDocPusher<S, IrohTransport>>,
-    serve_acp: Arc<LateBoundServeAcp>,
     #[cfg(not(target_arch = "wasm32"))]
     se_correlator: p2p::SeQueryCorrelator,
 }
@@ -60,6 +58,8 @@ impl<S: Store + 'static> IrohPeer<S> {
     ) -> p2p::Result<Self> {
         let IrohPeerConfig {
             endpoint,
+            document_acp,
+            strict_replicated_doc_access,
             sync,
             access_mode,
             rebroadcast_on_merge,
@@ -129,6 +129,38 @@ impl<S: Store + 'static> IrohPeer<S> {
         #[cfg(feature = "kms")]
         coordinator.install_kms_transport(Arc::clone(&kms_transport));
 
+        let replication = db::merge::create_replication_stack_with_max_merge_depth(
+            Arc::clone(&database),
+            Arc::clone(&blockstore),
+            Arc::clone(&coordinator),
+            max_merge_depth,
+        );
+        let doc_pusher_acp = Arc::new(
+            DbTransportDocPusher::new(
+                Arc::clone(&database),
+                transport.clone(),
+                coordinator.head_hint_car_authority(),
+            )
+            .with_retry_schedule(retry_schedule.clone()),
+        );
+
+        // Inbound events queue in the endpoint's channel until the handler
+        // below drains them, so binding ACP here precedes every merge and serve.
+        serve_acp.set(ServeAcp {
+            resolver: Arc::new(p2p::IrohPeerIdentityResolver::new(transport.clone())),
+            gate: DbBlockReadGate::new_arc(Arc::clone(&document_acp)),
+        });
+        coordinator.set_document_acp(Arc::clone(&document_acp));
+        replication
+            .merge_handler
+            .set_strict_replicated_doc_access(strict_replicated_doc_access);
+        replication
+            .merge_handler
+            .set_document_acp(Arc::clone(&document_acp));
+        doc_pusher_acp.set_document_acp(Arc::clone(&document_acp));
+        replication.broadcast_mutator.set_document_acp(document_acp);
+        let doc_pusher: Arc<dyn TransportDocPusher> = doc_pusher_acp;
+
         if load_persisted_collections {
             match db::merge::load_persisted_collections(&coordinator).await {
                 Ok(0) => {}
@@ -146,13 +178,6 @@ impl<S: Store + 'static> IrohPeer<S> {
         if let Err(error) = coordinator.start_pubsub_services().await {
             tracing::warn!(%error, "failed to start pubsub_rpc services");
         }
-
-        let replication = db::merge::create_replication_stack_with_max_merge_depth(
-            Arc::clone(&database),
-            Arc::clone(&blockstore),
-            Arc::clone(&coordinator),
-            max_merge_depth,
-        );
 
         #[cfg(not(target_arch = "wasm32"))]
         let se_correlator = p2p::SeQueryCorrelator::new();
@@ -211,16 +236,6 @@ impl<S: Store + 'static> IrohPeer<S> {
             #[cfg(not(target_arch = "wasm32"))]
             se_correlator.clone(),
         );
-
-        let doc_pusher_acp = Arc::new(
-            DbTransportDocPusher::new(
-                Arc::clone(&database),
-                transport.clone(),
-                coordinator.head_hint_car_authority(),
-            )
-            .with_retry_schedule(retry_schedule.clone()),
-        );
-        let doc_pusher: Arc<dyn TransportDocPusher> = doc_pusher_acp.clone();
 
         let failure_recorder_task = crate::spawn_failure_recorder(
             Peerstore::new(Arc::clone(&store)).with_retry_schedule(retry_schedule.clone()),
@@ -285,34 +300,12 @@ impl<S: Store + 'static> IrohPeer<S> {
             #[cfg(feature = "kms")]
             kms_transport,
             local_peer_id,
-            doc_pusher_acp,
-            serve_acp,
             #[cfg(not(target_arch = "wasm32"))]
             se_correlator,
         })
     }
 
-    /// Bind document ACP everywhere the peer consults it: block serving, the
-    /// coordinator, merge, outbound pushes, and the pre-broadcast registration
-    /// of locally created documents. `strict` registers replicated documents'
-    /// owners, which is only right under an authoritative shared ACP.
-    pub fn wire_document_acp(&self, acp: Arc<dyn acp::DocumentACP>, strict: bool) {
-        self.serve_acp.set(ServeAcp {
-            resolver: Arc::new(p2p::IrohPeerIdentityResolver::new(self.transport.clone())),
-            gate: DbBlockReadGate::new_arc(Arc::clone(&acp)),
-        });
-        self.coordinator.set_document_acp(Arc::clone(&acp));
-        self.replication
-            .merge_handler
-            .set_strict_replicated_doc_access(strict);
-        self.replication
-            .merge_handler
-            .set_document_acp(Arc::clone(&acp));
-        self.doc_pusher_acp.set_document_acp(Arc::clone(&acp));
-        self.replication.broadcast_mutator.set_document_acp(acp);
-    }
-
-    /// Bind the KMS built after the peer, once document ACP exists.
+    /// Bind the KMS built after the peer.
     #[cfg(feature = "kms")]
     pub fn wire_kms(&self, kms: Arc<dyn kms::KmsService>) {
         self.replication.merge_handler_inner.set_kms(kms);

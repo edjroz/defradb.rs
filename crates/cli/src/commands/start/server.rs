@@ -135,6 +135,16 @@ impl Node {
         let downsample_task = Some(database.clone().start_downsample_task());
         info!("Downsample worker enabled");
 
+        let acp_setup = Self::setup_document_acp(
+            config,
+            identity_key_bytes.as_deref(),
+            acp_store,
+            zanzibar_store.clone(),
+            event_bus.clone(),
+            db::node_access_checker(database.clone()),
+        )
+        .await?;
+
         let mut p2p_setup = Self::setup_p2p(
             store.clone(),
             database.clone(),
@@ -143,16 +153,7 @@ impl Node {
             peer_keypair,
             node_identity,
             se_key,
-        )
-        .await?;
-
-        let acp_setup = Self::setup_document_acp(
-            config,
-            identity_key_bytes.as_deref(),
-            acp_store,
-            zanzibar_store.clone(),
-            event_bus.clone(),
-            db::node_access_checker(database.clone()),
+            acp_setup.document_acp.clone(),
         )
         .await?;
 

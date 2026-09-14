@@ -8,6 +8,7 @@ use crate::config::Config;
 use crate::error::{Error, Result};
 
 impl Node {
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn setup_iroh_p2p(
         store: Arc<storage::DynStore>,
         database: Arc<db::DB<storage::DynStore>>,
@@ -16,14 +17,15 @@ impl Node {
         peer_keypair: Option<p2p::Keypair>,
         node_identity: Option<Arc<identity::RawIdentity>>,
         se_key: Option<[u8; 32]>,
+        document_acp: Arc<dyn acp::DocumentACP>,
     ) -> Result<P2PSetup> {
         info!("Initializing P2P network (iroh)");
 
         #[cfg(feature = "iroh-relay-server")]
         let iroh_relay_server = Self::spawn_iroh_relay_server(config).await?;
 
-        let mut peer_config =
-            defra_p2p_adapter::IrohPeerConfig::new(p2p::iroh::IrohEndpointConfig {
+        let mut peer_config = defra_p2p_adapter::IrohPeerConfig::new(
+            p2p::iroh::IrohEndpointConfig {
                 secret_key: Self::iroh_secret_key(peer_keypair.as_ref())?,
                 node_identity,
                 relay_mode: Self::iroh_relay_mode(config)?,
@@ -33,7 +35,9 @@ impl Node {
                 max_concurrent_multipath_paths: config.net.iroh_max_concurrent_multipath_paths,
                 gossip_heal: p2p::iroh::GossipHealConfig::from_env(),
                 allowlist: Self::iroh_allowlist(config),
-            });
+            },
+            document_acp,
+        );
         peer_config.sync = Self::sync_config(config);
         peer_config.access_mode = Self::access_mode(config);
         peer_config.rebroadcast_on_merge = config.net.p2p_rebroadcast_on_merge;
@@ -69,8 +73,6 @@ impl Node {
             se_key.map(|key| peer.se_query_transport(db::merge::filled_se_key_handle(key, None)));
 
         let merge_handler_for_kms = Arc::clone(&peer.replication.merge_handler_inner);
-        let peer = Arc::new(peer);
-        let peer_for_acp = Arc::clone(&peer);
         Ok(P2PSetup {
             host_handle: None,
             p2p_tasks: Some(P2PTasks::Iroh {
@@ -81,9 +83,7 @@ impl Node {
             mutator: peer.replication.broadcast_mutator.clone(),
             http_adapter: Some(Arc::clone(&peer.ops)),
             txn_broadcaster: Some(Arc::clone(&peer.replication.txn_broadcaster)),
-            wire_merge_acp: Some(Box::new(move |acp| {
-                peer_for_acp.wire_document_acp(acp, false);
-            })),
+            wire_merge_acp: None,
             wire_doc_pusher_acp: None,
             kms_transport: Some(peer.kms_transport.clone() as Arc<dyn kms::KeyTransport>),
             wire_kms: Some(Box::new(move |kms| merge_handler_for_kms.set_kms(kms))),

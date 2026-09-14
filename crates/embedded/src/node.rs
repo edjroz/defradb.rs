@@ -20,10 +20,13 @@ use anyhow::{anyhow, Context, Result};
 use p2p::sync::SyncConfig;
 use tokio::sync::Notify;
 
+#[cfg(feature = "libp2p")]
 pub(crate) type EmbeddedBlockstore<S> = blockstore::DefraBlockstore<S>;
+#[cfg(feature = "libp2p")]
 pub(crate) type EmbeddedMergeHandler<S> = db::merge::AcpMergeHandler<S, EmbeddedBlockstore<S>>;
 type EmbeddedTxnRegistry<S> = db::DbTransactionRegistry<S>;
-pub(crate) type WireDocumentAcpCallback = Box<dyn FnOnce(Arc<dyn acp::DocumentACP>)>;
+#[cfg(feature = "libp2p")]
+pub(crate) type WireDocumentAcpCallback = Box<dyn FnOnce(Arc<dyn acp::DocumentACP>, bool)>;
 pub(crate) type WireKmsCallback = Box<dyn FnOnce(Arc<dyn kms::KmsService>) + Send>;
 
 /// Resolve the ambient (scoped, then process) identity into a creator DID for
@@ -512,7 +515,18 @@ where
         ..Default::default()
     };
 
-    let p2p_setup: Result<Option<crate::node_p2p::P2PSetup<S>>> = match &config.transport {
+    let acp_setup =
+        create_document_acp(store.clone(), config.persistence, &config.document_acp).await?;
+    let document_acp = acp_setup.document_acp;
+    let local_zanzibar_store = acp_setup.local_zanzibar_store;
+    #[cfg(feature = "sourcehub")]
+    let sourcehub_acp = acp_setup.sourcehub_acp;
+    #[cfg(all(feature = "sourcehub", any(feature = "libp2p", feature = "iroh")))]
+    let strict_replicated_doc_access = sourcehub_acp.is_some();
+    #[cfg(all(not(feature = "sourcehub"), any(feature = "libp2p", feature = "iroh")))]
+    let strict_replicated_doc_access = false;
+
+    let p2p_setup: Result<Option<crate::node_p2p::P2PSetup>> = match &config.transport {
         TransportConfig::None => Ok(None),
         #[cfg(feature = "libp2p")]
         TransportConfig::Libp2p(libp2p) => crate::node_p2p::setup_libp2p(
@@ -532,6 +546,8 @@ where
             iroh,
             sync_config.clone(),
             raw_identity.clone(),
+            document_acp.clone(),
+            strict_replicated_doc_access,
         )
         .await
         .map(Some),
@@ -547,12 +563,6 @@ where
         }
     };
 
-    let acp_setup =
-        create_document_acp(store.clone(), config.persistence, &config.document_acp).await?;
-    let document_acp = acp_setup.document_acp;
-    let local_zanzibar_store = acp_setup.local_zanzibar_store;
-    #[cfg(feature = "sourcehub")]
-    let sourcehub_acp = acp_setup.sourcehub_acp;
     let nac_manager = create_nac_manager(store.clone(), config.persistence).await?;
 
     // Wire the NAC manager into the DB so DB-layer `check_node_access` calls go
@@ -561,16 +571,10 @@ where
     database.set_nac_manager(nac_manager.clone());
 
     if let Some(ref mut setup) = p2p_setup {
+        #[cfg(feature = "libp2p")]
         if let Some(wire_document_acp) = setup.wire_document_acp.take() {
-            wire_document_acp(document_acp.clone());
+            wire_document_acp(document_acp.clone(), strict_replicated_doc_access);
         }
-        setup.merge_handler.set_document_acp(document_acp.clone());
-        #[cfg(feature = "sourcehub")]
-        setup
-            .merge_handler
-            .set_strict_replicated_doc_access(sourcehub_acp.is_some());
-        #[cfg(not(feature = "sourcehub"))]
-        setup.merge_handler.set_strict_replicated_doc_access(false);
         // Populate the manage-channel serve deps now that the controller and
         // NAC manager exist; until this fires the event loop drops inbound
         // manage requests rather than serving them unauthenticated.
@@ -584,9 +588,8 @@ where
             });
     }
 
-    // Build the KMS once document ACP + NAC manager exist (PR #4778 ordering:
-    // the P2P transport was created earlier; the policy needs ACP/NAC which
-    // initialize here).
+    // Build the KMS once the NAC manager exists (PR #4778 ordering: the policy
+    // needs document ACP, created before P2P, and NAC, which initializes here).
     let kms: Arc<dyn kms::KmsService> = {
         // Blockstore-backed KeyStore (mirrors Go's internal/kms/enc_store.go):
         // the KMS serves DEKs for ANY encrypted write by reading/writing the
