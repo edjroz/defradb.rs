@@ -25,13 +25,13 @@ pub enum BlockClass {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-pub trait BlockClassifier: Send + Sync {
+pub trait BlockClassifier: defra_core::thread_bounds::MaybeSendSync {
     async fn classify(&self, cid: &Cid, data: &[u8]) -> BlockClass;
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-pub trait BlockReadGate: Send + Sync {
+pub trait BlockReadGate: defra_core::thread_bounds::MaybeSendSync {
     async fn may_read(&self, identity: &acp::Identity, meta: &BlockAcpMeta) -> bool;
 }
 

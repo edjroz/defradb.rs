@@ -215,7 +215,8 @@ impl<B: Blockstore + 'static> IrohP2PAdapter<B> {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<B: Blockstore + 'static> P2POperations for IrohP2PAdapter<B> {
     async fn sync_status(&self) -> P2PResult<serde_json::Value> {
         let Some(coordinator) = self.sync_coordinator.as_ref() else {
@@ -315,7 +316,7 @@ impl<B: Blockstore + 'static> P2POperations for IrohP2PAdapter<B> {
             std::time::Duration::from_secs(5)
         };
 
-        tokio::time::timeout(dial_timeout, self.transport.dial(&peer_id, direct_addrs))
+        n0_future::time::timeout(dial_timeout, self.transport.dial(&peer_id, direct_addrs))
             .await
             .map_err(|_| {
                 P2PError::transport(format!("failed to connect: timeout dialing {peer_id}"))
@@ -584,7 +585,7 @@ impl<B: Blockstore + 'static> P2POperations for IrohP2PAdapter<B> {
                     "Replaying existing docs for collections requiring replay"
                 );
 
-                tokio::spawn(async move {
+                n0_future::task::spawn(async move {
                     if let Err(error) = push_pusher
                         .push_existing_docs(
                             &push_peer,
@@ -913,7 +914,7 @@ impl<B: Blockstore + 'static> P2POperations for IrohP2PAdapter<B> {
             let request_clone = request.clone();
             let transport = self.transport.clone();
             let peer = peer.clone();
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 if let Err(error) = transport
                     .send_branchable_sync_request(&peer, request_clone)
                     .await
@@ -947,7 +948,7 @@ impl<B: Blockstore + 'static> P2POperations for IrohP2PAdapter<B> {
             .as_ref()
             .ok_or_else(|| P2PError::unsupported("version syncer required"))?
             .clone();
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             if let Err(error) = syncer.sync_versions(version_ids, connected_peers).await {
                 tracing::warn!(error = %error, "version sync failed");
             }
@@ -993,7 +994,8 @@ mod tests {
     /// generic is never exercised; a do-nothing implementation satisfies it.
     struct NoopBlockstore;
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl Blockstore for NoopBlockstore {
         async fn get(&self, _cid: &Cid) -> blockstore::Result<Option<Bytes>> {
             Ok(None)
@@ -1158,8 +1160,8 @@ mod tests {
             .await
             .expect("dial reaches endpoint b");
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
-        while std::time::Instant::now() < deadline {
+        let deadline = web_time::Instant::now() + std::time::Duration::from_millis(500);
+        while web_time::Instant::now() < deadline {
             let connected = transport_b
                 .connected_peers()
                 .await
@@ -1292,12 +1294,13 @@ mod tests {
         // Endpoint B has no coordinator behind it, so it accepts the doc-sync
         // request at the transport layer and never produces a reply or a merge.
         // Dropping each event drops the reply token with it.
-        let drain_b = tokio::spawn(async move { while events_b.recv().await.is_some() {} });
+        let drain_b =
+            n0_future::task::spawn(async move { while events_b.recv().await.is_some() {} });
 
         let dial_addr = dialable_ticket(&transport_b).await;
         adapter.connect_peer(&dial_addr).await.expect("dial b");
 
-        let result = tokio::time::timeout(
+        let result = n0_future::time::timeout(
             std::time::Duration::from_secs(10),
             adapter.sync_documents("Users", vec!["bae-does-not-matter".to_string()], None),
         )

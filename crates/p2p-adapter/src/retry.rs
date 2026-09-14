@@ -20,8 +20,8 @@ fn capacity_retry_delay(error: &str) -> Option<std::time::Duration> {
 pub fn spawn_failure_recorder<S: storage::corekv::Store + 'static>(
     peerstore: storage::stores::Peerstore<S>,
     mut failures: tokio::sync::mpsc::Receiver<p2p::sync::PushFailure>,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
+) -> n0_future::task::JoinHandle<()> {
+    n0_future::task::spawn(async move {
         let mut ack_fence = p2p::sync::HeadAckFence::default();
         while let Some(mut failure) = failures.recv().await {
             let durable_tx = failure.durable_tx.take();
@@ -220,7 +220,7 @@ pub async fn run_retry_pass<S, T>(
                 }
             };
             let replay_result =
-                tokio::time::timeout(std::time::Duration::from_secs(15), replay).await;
+                n0_future::time::timeout(std::time::Duration::from_secs(15), replay).await;
             match replay_result {
                 Ok(Ok(())) => {
                     // The PushLog acknowledgement already made the marker
@@ -290,17 +290,17 @@ pub fn spawn_retry_loop<S, T>(
     transport: T,
     doc_pusher: Arc<dyn TransportDocPusher>,
     se_repusher: Option<Arc<dyn db::merge::SeArtifactRepusher>>,
-) -> tokio::task::JoinHandle<()>
+) -> n0_future::task::JoinHandle<()>
 where
     S: storage::corekv::Store + 'static,
     T: P2PTransport,
 {
-    tokio::spawn(async move {
+    n0_future::task::spawn(async move {
         if let Err(error) = peerstore.migrate_legacy_push_retries().await {
             tracing::warn!(%error, "failed to migrate legacy push retries after restart");
         }
         loop {
-            tokio::time::sleep(p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL).await;
+            n0_future::time::sleep(p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL).await;
             run_retry_pass(
                 &peerstore,
                 &transport,
