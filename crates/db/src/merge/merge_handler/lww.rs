@@ -149,6 +149,23 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
                 "field block has no unambiguous owner; merged via its composite",
             ));
         };
+
+        let collection = self
+            .db
+            .find_collection_by_id(&payload.schema_version_id)?
+            .or_else(|| {
+                metadata
+                    .collection_id
+                    .and_then(|cid| self.db.find_collection_by_id(cid).ok().flatten())
+            });
+        let _collection_guard = match collection.as_ref() {
+            Some(collection) => Some(
+                self.db
+                    .collection_read_guard(collection.collection_id())
+                    .await?,
+            ),
+            None => None,
+        };
         let _guard = self.merge_queue.acquire(&doc_id_str).await;
 
         tracing::debug!(

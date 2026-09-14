@@ -116,6 +116,22 @@ impl<S: Store + 'static, B: blockstore::Blockstore + 'static> DbMergeHandler<S, 
         &self,
         blocks: &[MergeBlock],
     ) -> Result<Vec<Result<MergeOutcome, MergeError>>, MergeError> {
+        // Collection read guards, sorted and deduped like `collection_write_guards`
+        // takes them, so this can never deadlock against a truncate spanning
+        // several collections. Acquired before the per-doc merge queue below.
+        let mut batch_collection_ids = Vec::with_capacity(blocks.len());
+        for block in blocks {
+            if let Some(collection) = self.db.find_collection_by_id(&block.collection_id)? {
+                batch_collection_ids.push(collection.collection_id().to_string());
+            }
+        }
+        batch_collection_ids.sort();
+        batch_collection_ids.dedup();
+        let mut _collection_guards = Vec::with_capacity(batch_collection_ids.len());
+        for collection_id in &batch_collection_ids {
+            _collection_guards.push(self.db.collection_read_guard(collection_id).await?);
+        }
+
         // Serialize this batch against concurrent same-doc writes/merges (#1021).
         // The per-block `_in_txn` handlers below do NOT take the per-doc guard
         // (they share one txn), so acquire it here for every DISTINCT doc in the

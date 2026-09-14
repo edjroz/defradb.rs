@@ -67,7 +67,8 @@ impl<S: Store> DB<S> {
         Ok(())
     }
 
-    pub(crate) async fn collection_write_guards(
+    /// The lock a truncate, delete, or patch holds for the collections it writes.
+    pub async fn collection_write_guards(
         &self,
         collection_ids: impl IntoIterator<Item = String>,
     ) -> Result<Vec<RwLockWriteGuardArc<()>>> {

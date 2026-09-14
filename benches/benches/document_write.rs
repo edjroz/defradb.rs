@@ -306,5 +306,60 @@ fn delete(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, create, create_many, update, delete);
+/// A branchable collection appends every write to the collection DAG, so it
+/// scans the head set first: the live heads, the superseded heads reclamation
+/// has not reached yet, and the markers between them. Parameterized by the
+/// appends already in the collection: one, and the most the prune interval
+/// lets accumulate before the next sweep.
+const PRIOR_APPENDS: [usize; 2] = [1, 14];
+
+async fn branchable_fixture(prior: usize) -> Mutator {
+    let store = Arc::new(RegolithStore::in_memory().expect("an in-memory store"));
+    let db = Arc::new(DB::from_arc(store).expect("a database over it"));
+    db.create_collection(collection_version(4).as_branchable())
+        .await
+        .expect("the collection to register");
+    let mutator = Mutator::new(db);
+    for _ in 0..prior {
+        mutator
+            .create(COLLECTION, document(4, next_seq()))
+            .await
+            .expect("the seed append to succeed");
+    }
+    mutator
+}
+
+fn create_branchable(c: &mut Criterion) {
+    let rt = common::owned_runtime();
+    let mut group = c.benchmark_group("document_create_branchable");
+    for prior in PRIOR_APPENDS {
+        group.throughput(Throughput::Elements(1));
+        group.bench_with_input(BenchmarkId::from_parameter(prior), &prior, |b, &prior| {
+            b.iter_batched_ref(
+                || rt.block_on(branchable_fixture(prior)),
+                |mutator| {
+                    rt.block_on(async {
+                        black_box(
+                            mutator
+                                .create(COLLECTION, document(4, next_seq()))
+                                .await
+                                .expect("the append to succeed"),
+                        );
+                    })
+                },
+                BatchSize::LargeInput,
+            );
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    create,
+    create_many,
+    update,
+    delete,
+    create_branchable
+);
 criterion_main!(benches);
