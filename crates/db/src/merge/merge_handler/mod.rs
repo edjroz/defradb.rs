@@ -119,6 +119,23 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
         &self.db
     }
 
+    /// The collection a block belongs to: by its schema version, else by the
+    /// collection id its metadata carries. A lookup error is an error, never
+    /// an absent collection, so the collection guard is never skipped on one.
+    pub(crate) fn block_collection(
+        &self,
+        schema_version_id: &str,
+        fallback_collection_id: Option<&str>,
+    ) -> std::result::Result<Option<Collection>, MergeError> {
+        match self.db.find_collection_by_id(schema_version_id)? {
+            Some(collection) => Ok(Some(collection)),
+            None => match fallback_collection_id {
+                Some(id) => Ok(self.db.find_collection_by_id(id)?),
+                None => Ok(None),
+            },
+        }
+    }
+
     /// The per-document write queue serialising merges.
     pub fn merge_queue(&self) -> &Arc<crate::DocWriteQueue> {
         &self.merge_queue

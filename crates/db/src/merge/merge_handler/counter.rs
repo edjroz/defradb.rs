@@ -18,11 +18,7 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
         // Look up the collection to determine field kind and counter type,
         // with fallback to metadata's collection_id for cross-version sync
         let collection = self
-            .db
-            .find_collection_by_id(&payload.schema_version_id)?
-            .or(metadata
-                .collection_id
-                .and_then(|cid| self.db.find_collection_by_id(cid).ok().flatten()))
+            .block_collection(&payload.schema_version_id, metadata.collection_id)?
             .ok_or_else(|| {
                 MergeError::MissingMetadata(format!(
                     "Collection not found for schema_version_id: {}",

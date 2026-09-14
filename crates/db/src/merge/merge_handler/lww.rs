@@ -42,13 +42,9 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
         doc_id_str: &str,
         doc_short_id: u64,
     ) -> std::result::Result<bool, MergeError> {
-        let collection = self
-            .db
-            .find_collection_by_id(&payload.schema_version_id)?
-            .or(fallback_collection_id
-                .and_then(|cid| self.db.find_collection_by_id(cid).ok().flatten()));
-
-        let Some(collection) = collection else {
+        let Some(collection) =
+            self.block_collection(&payload.schema_version_id, fallback_collection_id)?
+        else {
             return Ok(false);
         };
 
@@ -150,14 +146,8 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
             ));
         };
 
-        let collection = self
-            .db
-            .find_collection_by_id(&payload.schema_version_id)?
-            .or_else(|| {
-                metadata
-                    .collection_id
-                    .and_then(|cid| self.db.find_collection_by_id(cid).ok().flatten())
-            });
+        let collection =
+            self.block_collection(&payload.schema_version_id, metadata.collection_id)?;
         let _collection_guard = match collection.as_ref() {
             Some(collection) => Some(
                 self.db

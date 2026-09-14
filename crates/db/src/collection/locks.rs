@@ -23,7 +23,11 @@ impl<S: Store> DB<S> {
         &self,
         collection_id: &str,
     ) -> Result<RwLockReadGuardArc<()>> {
-        Ok(self.collection_lock(collection_id)?.read_arc().await)
+        let lock = self.collection_lock(collection_id)?;
+        tracing::trace!(collection_id, "waiting for the collection guard");
+        let guard = lock.read_arc().await;
+        tracing::trace!(collection_id, "holding the collection guard");
+        Ok(guard)
     }
 
     pub(crate) async fn acquire_collection_read_lock(
