@@ -567,7 +567,13 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
                 txn.force_commit().await?;
 
                 if let Some((collection_short_id, commit)) = collection_commit {
-                    self.record_authored_collection_commit(*cid, commit);
+                    if let Some(slot) = metadata.authored_collection_commit {
+                        // A retry reaches this point only after an attempt that
+                        // conflicted, and a conflicted attempt never commits, so
+                        // the slot can only be empty here.
+                        let delivered = slot.set(commit).is_ok();
+                        debug_assert!(delivered, "one merge fills one slot");
+                    }
                     self.db
                         .maybe_prune_collection_heads(collection_short_id)
                         .await;

@@ -200,16 +200,21 @@ pub struct BlockMetadata<'a> {
     /// Schema blocks are governed by node-level access control (NAC) rather than
     /// document-level ACP. Doc-level permission checks must be skipped for schema blocks.
     pub is_schema_block: bool,
-    /// Whether the merging node authors the branchable collection's commit for
-    /// this block, in the merge's own transaction.
+    /// Where the merging node puts the branchable collection commit it authors
+    /// for this block, inside the merge's own transaction.
     ///
-    /// Set only where this node is the first to hold the document, so no peer
-    /// will ever send that commit: an ingress such as `/sync`. A block that
-    /// arrived by replication leaves it false, because the commit travels with
-    /// the document. Honoured on the standalone composite merge path, which is
-    /// the one an ingress takes.
-    pub authors_collection_commit: bool,
+    /// Present only where this node is the first to hold the document, so no
+    /// peer will ever send that commit: an ingress such as `/sync`. A block
+    /// that arrived by replication leaves it `None`, because the commit travels
+    /// with the document. The caller owns the slot, so what a merge authors
+    /// comes back to that caller and to no one else. Only
+    /// `MergeHandler::handle_block` accepts it: `MergeBlock`, which the batch
+    /// path takes, has nowhere to carry one.
+    pub authored_collection_commit: Option<&'a CollectionCommitSlot>,
 }
+
+/// Receives the collection commit a merge authored: its CID and encoded block.
+pub type CollectionCommitSlot = std::sync::OnceLock<(Cid, bytes::Bytes)>;
 
 impl<'a> BlockMetadata<'a> {
     /// Create metadata for a normal (non-recovery) merge operation.
@@ -230,7 +235,7 @@ impl<'a> BlockMetadata<'a> {
             verified_creator: None,
             is_recovery: false,
             is_schema_block: false,
-            authors_collection_commit: false,
+            authored_collection_commit: None,
         }
     }
 
@@ -250,7 +255,7 @@ impl<'a> BlockMetadata<'a> {
             verified_creator: None,
             is_recovery: false,
             is_schema_block: true,
-            authors_collection_commit: false,
+            authored_collection_commit: None,
         }
     }
 
@@ -270,7 +275,7 @@ impl<'a> BlockMetadata<'a> {
             verified_creator: None,
             is_recovery: true,
             is_schema_block: false,
-            authors_collection_commit: false,
+            authored_collection_commit: None,
         }
     }
 
@@ -294,14 +299,15 @@ impl<'a> BlockMetadata<'a> {
             verified_creator,
             is_recovery: true,
             is_schema_block: false,
-            authors_collection_commit: false,
+            authored_collection_commit: None,
         }
     }
 
     /// Author the branchable collection's commit inside this merge's
-    /// transaction, for an ingress that is the document's first holder.
-    pub fn authoring_collection_commit(mut self) -> Self {
-        self.authors_collection_commit = true;
+    /// transaction and leave it in `slot`, for an ingress that is the
+    /// document's first holder.
+    pub fn authoring_collection_commit(mut self, slot: &'a CollectionCommitSlot) -> Self {
+        self.authored_collection_commit = Some(slot);
         self
     }
 

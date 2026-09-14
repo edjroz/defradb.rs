@@ -21,7 +21,7 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
         context: &CompositeMergeContext<'_, '_>,
         state: &CompositeMergeState,
     ) -> Result<Option<(u32, (Cid, Bytes))>, MergeError> {
-        if !context.metadata.authors_collection_commit || !state.is_branchable {
+        if context.metadata.authored_collection_commit.is_none() || !state.is_branchable {
             return Ok(None);
         }
         let Some(collection) = context.collection.as_ref() else {

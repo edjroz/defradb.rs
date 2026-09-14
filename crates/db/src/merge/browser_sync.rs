@@ -5,7 +5,7 @@ use std::sync::Arc;
 use blockstore::{Blockstore, DefraBlockstore};
 use cid::Cid;
 use defra_core::browser_sync::{BrowserSyncBlock, BrowserSyncDocument, MAX_SYNC_PAYLOAD_BYTES};
-use defra_core::merge::{BlockMetadata, MergeHandler, MergeOutcome};
+use defra_core::merge::{BlockMetadata, CollectionCommitSlot, MergeHandler, MergeOutcome};
 use storage::corekv::{IterOptions, Key as _, Store};
 use storage::keys::BrowserSyncHeadKey;
 
@@ -459,13 +459,14 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
             .await
             .map_err(|error| BrowserSyncError::Storage(error.to_string()))?;
 
-        let mut merged_roots = Vec::new();
+        let mut merged = Vec::new();
         for root in &document.roots {
             let data = document
                 .blocks
                 .iter()
                 .find_map(|(cid, data)| (cid == root).then_some(data.as_ref()))
                 .expect("validated roots are present in blocks");
+            let collection_commit = CollectionCommitSlot::new();
             match self
                 .merge_handler
                 .handle_block(
@@ -483,12 +484,12 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
                         None,
                         false,
                     )
-                    .authoring_collection_commit(),
+                    .authoring_collection_commit(&collection_commit),
                 )
                 .await
                 .map_err(|error| BrowserSyncError::Merge(error.to_string()))?
             {
-                MergeOutcome::Merged => merged_roots.push(*root),
+                MergeOutcome::Merged => merged.push((*root, collection_commit.into_inner())),
                 MergeOutcome::Skipped { terminal: true, .. } => {}
                 MergeOutcome::Skipped { reason, .. } | MergeOutcome::Rejected { reason } => {
                     return Err(BrowserSyncError::Merge(reason));
@@ -503,7 +504,7 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
         // means every block here was. Announcing anyway puts blocks the
         // network already has back on the wire once per document, which is
         // the whole store of a browser that has not been updated.
-        if merged_roots.is_empty() {
+        if merged.is_empty() {
             return Ok(());
         }
 
@@ -513,13 +514,7 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
             .await
             .map_err(|error| BrowserSyncError::Storage(error.to_string()))?;
 
-        let collection_commits: Vec<_> = merged_roots
-            .iter()
-            .map(|root| self.merge_handler.take_authored_collection_commit(root))
-            .collect();
-
-        self.announce_merged_document(&document, &merged_roots, &collection_commits)
-            .await;
+        self.announce_merged_document(&document, &merged).await;
         Ok(())
     }
 
@@ -538,8 +533,7 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
     async fn announce_merged_document(
         &self,
         document: &ValidatedBrowserSyncDocument,
-        merged_roots: &[Cid],
-        collection_commits: &[Option<(Cid, Bytes)>],
+        merged: &[(Cid, Option<(Cid, Bytes)>)],
     ) {
         let Some(broadcaster) = self.broadcaster.as_ref() else {
             return;
@@ -579,10 +573,10 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
                     doc_cid: *root,
                     doc_block: block,
                     document_json: document_json.clone(),
-                    collection_block: merged_roots
+                    collection_block: merged
                         .iter()
-                        .position(|merged| merged == root)
-                        .and_then(|index| collection_commits[index].clone()),
+                        .find(|(merged_root, _)| merged_root == root)
+                        .and_then(|(_, commit)| commit.clone()),
                     creator_did: document.verified_genesis_creator.clone(),
                 })
                 .await;

@@ -20,10 +20,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use storage::RegolithStore;
 
-const COLLECTION: &str = "DagConfig";
-const COLLECTION_ID: &str = "col-dag-config";
+pub(crate) const COLLECTION: &str = "DagConfig";
+pub(crate) const COLLECTION_ID: &str = "col-dag-config";
 
-fn branchable_schema() -> CollectionVersion {
+pub(crate) fn branchable_schema() -> CollectionVersion {
     CollectionVersion::new(
         COLLECTION,
         "dag-config-v1",
@@ -37,13 +37,13 @@ fn branchable_schema() -> CollectionVersion {
     .as_branchable()
 }
 
-async fn branchable_node() -> Arc<DB<RegolithStore>> {
+pub(crate) async fn branchable_node() -> Arc<DB<RegolithStore>> {
     let db = Arc::new(DB::new(RegolithStore::in_memory().unwrap()).unwrap());
     db.create_collection(branchable_schema()).await.unwrap();
     db
 }
 
-fn command(device: &str, seq: i64) -> Document {
+pub(crate) fn command(device: &str, seq: i64) -> Document {
     let mut document = Document::new();
     document.set("device", device);
     document.set("seq", seq);
@@ -52,20 +52,23 @@ fn command(device: &str, seq: i64) -> Document {
 
 /// What a browser node hands central: a document it authored elsewhere, as
 /// blocks.
-async fn authored_elsewhere(author: &Arc<DB<RegolithStore>>, doc_id: &str) -> BrowserSyncDocument {
+pub(crate) async fn authored_elsewhere(
+    author: &Arc<DB<RegolithStore>>,
+    doc_id: &str,
+) -> BrowserSyncDocument {
     let sync = BrowserSyncEngine::new(author.clone());
     let document_ref = sync.document_ref(doc_id).await.unwrap().unwrap();
     sync.load_document(&document_ref).await.unwrap().unwrap()
 }
 
-async fn collection_heads(db: &Arc<DB<RegolithStore>>) -> Vec<Cid> {
+pub(crate) async fn collection_heads(db: &Arc<DB<RegolithStore>>) -> Vec<Cid> {
     DbHeadProvider::new(db.clone())
         .get_collection_heads(COLLECTION_ID)
         .await
         .unwrap()
 }
 
-async fn load_block(db: &Arc<DB<RegolithStore>>, cid: &Cid) -> Block {
+pub(crate) async fn load_block(db: &Arc<DB<RegolithStore>>, cid: &Cid) -> Block {
     let txn = db.new_txn(true).await.unwrap();
     let data = txn
         .blockstore()
@@ -155,19 +158,50 @@ async fn a_sync_write_extends_a_collection_that_already_has_heads() {
         .apply_document(&updated, "browser")
         .await
         .unwrap();
-    let after_update = assert_head_reaches(&central, &updated.roots[0], &[after_create]).await;
+    assert_head_reaches(&central, &updated.roots[0], &[after_create]).await;
+}
 
-    // The same push again merges nothing, so it commits nothing.
-    central_sync
-        .apply_document(&updated, "browser")
+/// A push this node has already merged is inert: it merges nothing, so it
+/// must commit nothing, or every browser that re-offers its store at boot
+/// would grow the collection DAG by one commit per document.
+#[tokio::test]
+async fn a_resent_push_commits_nothing() {
+    let browser = branchable_node().await;
+    let central = branchable_node().await;
+    let created = AutoCommitMutator::new(browser.clone())
+        .create(COLLECTION, command("sensor-7", 1))
         .await
         .unwrap();
-    assert_eq!(collection_heads(&central).await, vec![after_update]);
+    let pushed = authored_elsewhere(&browser, &created.doc_id.to_string()).await;
+
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let central_sync = BrowserSyncEngine::with_broadcaster(
+        central.clone(),
+        Arc::new(CapturingBroadcaster {
+            events: events.clone(),
+        }),
+    );
+    central_sync
+        .apply_document(&pushed, "browser")
+        .await
+        .unwrap();
+    let head = assert_head_reaches(&central, &pushed.roots[0], &[]).await;
+
+    central_sync
+        .apply_document(&pushed, "browser")
+        .await
+        .unwrap();
+    assert_eq!(collection_heads(&central).await, vec![head]);
+    assert_eq!(
+        events.lock().unwrap().len(),
+        1,
+        "the re-send announces nothing either"
+    );
 }
 
 /// `TxnBroadcaster` test double: captures every event it is handed.
-struct CapturingBroadcaster {
-    events: Arc<std::sync::Mutex<Vec<db::event::emission::TxnBroadcastEvent>>>,
+pub(crate) struct CapturingBroadcaster {
+    pub(crate) events: Arc<std::sync::Mutex<Vec<db::event::emission::TxnBroadcastEvent>>>,
 }
 
 #[async_trait::async_trait]
