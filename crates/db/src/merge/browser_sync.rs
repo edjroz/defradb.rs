@@ -5,7 +5,7 @@ use std::sync::Arc;
 use blockstore::{Blockstore, DefraBlockstore};
 use cid::Cid;
 use defra_core::browser_sync::{BrowserSyncBlock, BrowserSyncDocument, MAX_SYNC_PAYLOAD_BYTES};
-use defra_core::merge::{BlockMetadata, MergeHandler, MergeOutcome};
+use defra_core::merge::{BlockMetadata, CollectionCommitSlot, MergeHandler, MergeOutcome};
 use storage::corekv::{IterOptions, Key as _, Store};
 use storage::keys::BrowserSyncHeadKey;
 
@@ -459,30 +459,37 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
             .await
             .map_err(|error| BrowserSyncError::Storage(error.to_string()))?;
 
-        let mut merged = false;
+        let mut merged = Vec::new();
         for root in &document.roots {
             let data = document
                 .blocks
                 .iter()
                 .find_map(|(cid, data)| (cid == root).then_some(data.as_ref()))
                 .expect("validated roots are present in blocks");
+            let collection_commit = CollectionCommitSlot::new();
             match self
                 .merge_handler
                 .handle_block(
                     root,
                     data,
+                    // `/sync` is where the document entered the network, so
+                    // no peer will ever send the collection commit that puts
+                    // it in a branchable collection's DAG. The merge writes it
+                    // in the transaction that lands the document, so the two
+                    // cannot come apart.
                     BlockMetadata::normal(
                         &document.doc_id,
                         &document.collection_id,
                         creator,
                         None,
                         false,
-                    ),
+                    )
+                    .authoring_collection_commit(&collection_commit),
                 )
                 .await
                 .map_err(|error| BrowserSyncError::Merge(error.to_string()))?
             {
-                MergeOutcome::Merged => merged = true,
+                MergeOutcome::Merged => merged.push((*root, collection_commit.into_inner())),
                 MergeOutcome::Skipped { terminal: true, .. } => {}
                 MergeOutcome::Skipped { reason, .. } | MergeOutcome::Rejected { reason } => {
                     return Err(BrowserSyncError::Merge(reason));
@@ -497,7 +504,7 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
         // means every block here was. Announcing anyway puts blocks the
         // network already has back on the wire once per document, which is
         // the whole store of a browser that has not been updated.
-        if !merged {
+        if merged.is_empty() {
             return Ok(());
         }
 
@@ -507,7 +514,7 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
             .await
             .map_err(|error| BrowserSyncError::Storage(error.to_string()))?;
 
-        self.announce_merged_document(&document).await;
+        self.announce_merged_document(&document, &merged).await;
         Ok(())
     }
 
@@ -523,7 +530,11 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
     /// The creator is the DID verified from the genesis signature, never the
     /// caller who delivered the push, so a receiving peer registers the owner
     /// this node proved rather than the one its sender claims.
-    async fn announce_merged_document(&self, document: &ValidatedBrowserSyncDocument) {
+    async fn announce_merged_document(
+        &self,
+        document: &ValidatedBrowserSyncDocument,
+        merged: &[(Cid, Option<(Cid, Bytes)>)],
+    ) {
         let Some(broadcaster) = self.broadcaster.as_ref() else {
             return;
         };
@@ -562,7 +573,10 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
                     doc_cid: *root,
                     doc_block: block,
                     document_json: document_json.clone(),
-                    collection_block: None,
+                    collection_block: merged
+                        .iter()
+                        .find(|(merged_root, _)| merged_root == root)
+                        .and_then(|(_, commit)| commit.clone()),
                     creator_did: document.verified_genesis_creator.clone(),
                 })
                 .await;
