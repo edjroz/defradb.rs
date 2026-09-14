@@ -260,7 +260,6 @@ pub async fn run_retry_pass<S, T>(
             return;
         }
     };
-    let connected = transport.connected_peers().await.unwrap_or_default();
 
     for (peer_id_str, info_bytes) in peers {
         if let Err(error) = storage::stores::RetryInfo::from_bytes(&info_bytes) {
@@ -280,27 +279,30 @@ pub async fn run_retry_pass<S, T>(
             finish_peer(peerstore, &peer_id_str, true).await;
             continue;
         }
-        // Reachability is checked ahead of the replay clock, not behind it.
-        // An unreachable peer produced no push failure, so it neither charges
-        // a rung on the Go replay ladder nor waits one out: the dial is the
-        // only work this pass can do and it repeats on the paced sweep,
-        // exactly as a capacity nack does below. Behind the gate this probe
-        // could not fire until the rung charged by the last push timeout
-        // expired, which cost a measured 21.5s p50 on a 60s outage.
-        if !connected.contains(&peer_id) {
-            redial_replicator(peerstore, transport, &peer_id).await;
-            let _ = peerstore
-                .reschedule_retry_peer(
-                    &peer_id_str,
-                    Some(p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL),
-                )
-                .await;
-            finish_peer(peerstore, &peer_id_str, false).await;
+        if !force && !markers.iter().any(|marker| marker.retry_info.is_due()) {
             continue;
         }
 
-        if !force && !markers.iter().any(|marker| marker.retry_info.is_due()) {
-            continue;
+        // A failed peer observation is not evidence of disconnection. Keeping
+        // the peer's state and letting the replay below charge the configured
+        // ladder is the conservative move; treating the observation error as
+        // an empty connected set would redial every replicator at once.
+        match transport.connected_peers().await {
+            Ok(connected) if !connected.contains(&peer_id) => {
+                // Connectivity is part of the due retry attempt. Do not create a
+                // second two-second redial clock for markers whose ladder has not
+                // elapsed yet. `run_reconnect_pass` owns the off-ladder probing.
+                redial_replicator(peerstore, transport, &peer_id).await;
+                let _ = peerstore.reschedule_retry_peer(&peer_id_str, None).await;
+                finish_peer(peerstore, &peer_id_str, false).await;
+                continue;
+            }
+            Ok(_) => {}
+            Err(error) => tracing::debug!(
+                %peer_id,
+                %error,
+                "peer observation failed; keeping the existing retry schedule"
+            ),
         }
 
         let mut fast_failures = 0usize;
