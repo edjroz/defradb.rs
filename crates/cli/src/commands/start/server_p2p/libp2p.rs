@@ -460,6 +460,8 @@ impl Node {
                 event_handler_task,
                 failure_recorder_task,
                 retry_loop_task,
+                #[cfg(feature = "iroh-relay-server")]
+                iroh_relay_server: None,
             }),
             mutator: broadcast_mutator,
             http_adapter: Some(manage_controller.clone()),

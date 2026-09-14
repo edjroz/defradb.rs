@@ -75,6 +75,8 @@ lru = { workspace = true, optional = true }
 iroh = { workspace = true, optional = true }
 iroh-gossip = { workspace = true, optional = true }
 iroh-tickets = { workspace = true, optional = true }
+iroh-relay = { workspace = true, optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
 # Preserve the noq defaults and feature aliases that iroh-blobs previously
 # enabled transitively, including the Iroh endpoint's bloom token log.
 noq = { version = "1.1", features = ["bloom", "rustls-ring"], optional = true }
@@ -98,6 +100,9 @@ libp2p-transport = [
 # opt-in for iroh-only builds.
 kms = ["dep:kms", "dep:kovan-map"]
 iroh-transport = ["dep:iroh", "dep:iroh-gossip", "dep:iroh-tickets", "dep:noq", "dep:rand", "dep:blake3", "dep:lru"]
+# Host an iroh relay server next to the endpoint. Pulls in the relay's HTTP,
+# WebSocket, and TLS stack, so it stays out of plain iroh builds.
+iroh-relay-server = ["iroh-transport", "dep:iroh-relay", "dep:rustls"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }

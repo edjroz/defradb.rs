@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use query::{DEFAULT_MAX_FILTER_DEPTH, DEFAULT_MAX_QUERY_DEPTH, DEFAULT_MAX_QUERY_WIDTH};
 use storage::backends::DurabilityMode;
 
+use super::iroh_relay_server::IrohRelayServerConfig;
 use super::types::{
     AcpDocumentType, DatastoreType, KeyringBackend, LogFormat, LogLevel, LogOutput, TransportType,
 };
@@ -338,6 +339,9 @@ pub struct NetConfig {
     /// name a collection.
     #[serde(default)]
     pub iroh_allowed_peers: Vec<String>,
+    /// Host an iroh relay server on this node. Unset hosts none.
+    #[serde(default)]
+    pub iroh_relay_server: Option<IrohRelayServerConfig>,
     /// Maximum concurrent QUIC paths per iroh connection. None keeps iroh's
     /// default; custom values must be at least 9.
     #[serde(default)]
@@ -450,6 +454,7 @@ impl Default for NetConfig {
             iroh_bind_port: None,
             iroh_bind_addr: None,
             iroh_allowed_peers: Vec::new(),
+            iroh_relay_server: None,
             iroh_max_concurrent_multipath_paths: None,
             p2p_rate_limit_burst: default_rate_limit_burst(),
             p2p_rate_limit_rate: default_rate_limit_rate(),
@@ -468,6 +473,21 @@ impl NetConfig {
     pub fn validate(&self) -> Result<()> {
         if self.p2p_disabled {
             return Ok(());
+        }
+
+        if let Some(relay_server) = &self.iroh_relay_server {
+            if self.transport != TransportType::Iroh {
+                return Err(Error::InvalidConfig(
+                    "net.iroh_relay_server requires net.transport: iroh".into(),
+                ));
+            }
+            if !cfg!(feature = "iroh-relay-server") {
+                return Err(Error::InvalidConfig(
+                    "net.iroh_relay_server requires a defra binary built with the iroh-relay-server feature"
+                        .into(),
+                ));
+            }
+            relay_server.validate()?;
         }
 
         // Multiaddr validation only applies to libp2p transport

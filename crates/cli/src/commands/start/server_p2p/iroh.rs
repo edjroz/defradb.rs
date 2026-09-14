@@ -29,6 +29,9 @@ impl Node {
         let head_provider: Arc<dyn p2p::sync::DocumentHeadProvider> =
             Arc::new(db::merge::create_head_provider(database.clone()));
 
+        #[cfg(feature = "iroh-relay-server")]
+        let iroh_relay_server = Self::spawn_iroh_relay_server(config).await?;
+
         let iroh_secret_key = Self::iroh_secret_key(peer_keypair.as_ref())?;
         let (command_tx, iroh_events, replicator_registry, host_task) =
             p2p::iroh::spawn_endpoint(p2p::iroh::IrohEndpointConfig {
@@ -445,6 +448,8 @@ impl Node {
                 event_handler_task,
                 failure_recorder_task,
                 retry_loop_task,
+                #[cfg(feature = "iroh-relay-server")]
+                iroh_relay_server,
             }),
             mutator: broadcast_mutator,
             http_adapter: Some(manage_controller.clone()),
@@ -521,11 +526,30 @@ impl Node {
     }
 
     fn iroh_relay_urls(config: &Config) -> Vec<String> {
-        let mut urls = config.net.iroh_relay_urls.clone();
+        let mut urls: Vec<String> = config
+            .net
+            .iroh_relay_server
+            .iter()
+            .filter_map(|server| server.public_url.clone())
+            .collect();
+        urls.extend(config.net.iroh_relay_urls.iter().cloned());
         if let Some(url) = &config.net.iroh_relay_url {
             urls.push(url.clone());
         }
         urls
+    }
+
+    #[cfg(feature = "iroh-relay-server")]
+    async fn spawn_iroh_relay_server(
+        config: &Config,
+    ) -> Result<Option<p2p::iroh::IrohRelayServer>> {
+        let Some(server) = &config.net.iroh_relay_server else {
+            return Ok(None);
+        };
+        p2p::iroh::IrohRelayServer::spawn(server.to_p2p())
+            .await
+            .map(Some)
+            .map_err(Error::P2P)
     }
 
     /// Who may open an inbound connection.
@@ -572,6 +596,28 @@ impl Node {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A node hosting a relay must also join it, or peers dialing through
+    /// that relay could reach every endpoint except the one hosting it.
+    #[test]
+    fn hosted_relay_public_url_leads_the_relay_map() {
+        let mut config = Config::default();
+        config.net.iroh_relay_urls = vec!["https://other.example.com".to_string()];
+        config.net.iroh_relay_server = Some(
+            serde_yaml::from_str(
+                "http_bind_addr: 0.0.0.0:80\npublic_url: https://relay.example.com\n",
+            )
+            .unwrap(),
+        );
+
+        assert_eq!(
+            Node::iroh_relay_mode(&config).unwrap(),
+            p2p::iroh::IrohRelayModeConfig::Custom(vec![
+                "https://relay.example.com".to_string(),
+                "https://other.example.com".to_string(),
+            ])
+        );
+    }
 
     /// The setting is what turns the allowlist on for this binary.
     ///

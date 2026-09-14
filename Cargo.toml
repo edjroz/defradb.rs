@@ -95,6 +95,7 @@ multiaddr = "0.18"
 # Iroh P2P transport (alternative to libp2p)
 iroh = "1.0.1"
 iroh-gossip = "0.101.0"
+iroh-relay = { version = "1.0.1", features = ["server"] }
 iroh-tickets = "1.0.0"
 postcard = { version = "1.0", features = ["alloc"] }
 

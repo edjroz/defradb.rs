@@ -123,6 +123,8 @@ sourcehub = ["dep:sourcehub"]
 # Orbis ring threshold signing (`--signer-type orbis`).
 orbis = ["dep:orbis"]
 iroh = ["p2p/iroh-transport", "defra-p2p-adapter/iroh", "dep:iroh-net", "dep:rand"]
+# Host an iroh relay server (`net.iroh_relay_server`) alongside the endpoint.
+iroh-relay-server = ["iroh", "p2p/iroh-relay-server"]
 profiling = ["dep:tracing-chrome"]
 # OpenTelemetry OTLP exporter. Mirrors Go's `//go:build telemetry`: compile-time
 # opt-in. When built with this feature, runtime default is on (Go parity); use
