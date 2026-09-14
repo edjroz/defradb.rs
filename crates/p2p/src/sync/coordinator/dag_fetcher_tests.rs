@@ -1547,3 +1547,57 @@ async fn success_completion_racing_block_storage_does_not_burn_a_retry_backoff()
          for blocks that had already been delivered"
     );
 }
+
+/// The same race, but the completion arrives in the watchdog's final moments:
+/// its blocks then land after `BLOCK_SYNC_COMPLETION_WATCHDOG` would have
+/// expired. The grace has to outlive the watchdog, or a Success arriving late
+/// in the window gets no grace at all and burns the retry backoff anyway.
+#[tokio::test(start_paused = true)]
+async fn late_success_completion_keeps_the_full_landing_grace() {
+    let store = Arc::new(RegolithStore::in_memory().unwrap());
+    let blockstore = Arc::new(DefraBlockstore::new(store, true));
+    let (root_cid, root_data, child_cid, child_data) = single_child_dag();
+    // The transport serves nothing: this test drives the completion and the
+    // block landing itself, on the production ordering.
+    let transport = TestTransport::new(
+        blockstore.clone(),
+        root_cid,
+        root_data,
+        HashMap::new(),
+        HashMap::new(),
+    );
+    let completion = crate::sync::manager::BlockSyncCompletionTracker::default();
+    let context = DagFetchContext::new(
+        "doc-id".to_string(),
+        "collection-id".to_string(),
+        "creator-id".to_string(),
+        PeerId::new("remote-peer".to_string()),
+    )
+    .with_block_sync_completions(completion.clone());
+
+    let landing_store = blockstore.clone();
+    n0_future::task::spawn(async move {
+        n0_future::time::sleep(BLOCK_SYNC_COMPLETION_WATCHDOG - Duration::from_millis(150)).await;
+        // First (and only) sync_blocks call of this poll window.
+        completion.complete(QueryId(1), true);
+        n0_future::time::sleep(SUCCESS_LANDING_GRACE / 2).await;
+        landing_store.put(&child_cid, &child_data).await.unwrap();
+    });
+
+    let outcome = poll_fetch_blocks(
+        &root_cid,
+        &[child_cid],
+        &transport,
+        &blockstore,
+        &PeerId::new("remote-peer".to_string()),
+        &context,
+    )
+    .await;
+
+    assert_eq!(
+        outcome,
+        ProviderWindowOutcome::Complete,
+        "a Success in the watchdog's last moments must still wait out the landing grace"
+    );
+    assert!(matches!(blockstore.has(&child_cid).await, Ok(true)));
+}

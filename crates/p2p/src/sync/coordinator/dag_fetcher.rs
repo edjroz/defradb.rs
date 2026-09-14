@@ -878,7 +878,10 @@ async fn poll_fetch_blocks<B: Blockstore, T: P2PTransport>(
     let timeout = BLOCK_SYNC_COMPLETION_WATCHDOG;
     let start = Instant::now();
     let mut outcome = ProviderWindowOutcome::Stalled;
-    while start.elapsed() < timeout {
+    // Once Success has been seen the landing deadline, not the watchdog,
+    // bounds the loop: a completion that arrives in the watchdog's last
+    // moments must still get the whole grace for its blocks to land.
+    while landing_deadline.is_some() || start.elapsed() < timeout {
         if !context.is_current() {
             break;
         }
