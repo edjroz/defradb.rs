@@ -9,12 +9,20 @@ use crate::TransportDocPusher;
 /// A saturated or rate-limiting receiver is backpressure, not a verdict on
 /// the document: wait one paced sweep, never a ladder rung.
 fn capacity_retry_delay(error: &str) -> Option<std::time::Duration> {
-    let is_capacity = p2p::error::is_at_capacity_message(error)
+    let is_backpressure = carries_reply_sentinel(error, p2p::error::AT_CAPACITY_MESSAGE)
+        || carries_reply_sentinel(error, p2p::error::RATE_LIMITED_MESSAGE);
+    is_backpressure.then_some(p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL)
+}
+
+/// The replay path reports a receiver's nack as `"<context>: <sentinel>"`, so an
+/// exact sentinel is either the whole message or its `": "`-delimited tail.
+/// Matched exactly, never as a loose substring: a document whose own content
+/// mentions one of these phrases must not be read as backpressure.
+fn carries_reply_sentinel(error: &str, sentinel: &str) -> bool {
+    error == sentinel
         || error
-            .strip_suffix(p2p::error::AT_CAPACITY_MESSAGE)
+            .strip_suffix(sentinel)
             .is_some_and(|prefix| prefix.ends_with(": "))
-        || error.contains("rate limited");
-    is_capacity.then_some(p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL)
 }
 
 /// Record head announcements and acknowledgements behind the peer-scoped
@@ -342,6 +350,32 @@ mod tests {
             Some(p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL)
         );
         assert_eq!(capacity_retry_delay("connection reset"), None);
+    }
+
+    #[test]
+    fn backpressure_is_classified_by_exact_sentinel_not_substring() {
+        for sentinel in [
+            p2p::error::AT_CAPACITY_MESSAGE,
+            p2p::error::RATE_LIMITED_MESSAGE,
+        ] {
+            assert_eq!(
+                capacity_retry_delay(sentinel),
+                Some(p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL),
+                "bare sentinel {sentinel:?} was not read as backpressure"
+            );
+            assert_eq!(
+                capacity_retry_delay(&format!("peer rejected replay: {sentinel}")),
+                Some(p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL),
+                "wrapped sentinel {sentinel:?} was not read as backpressure"
+            );
+        }
+        // A document whose own error text merely mentions the phrase is a
+        // document failure, not a peer-wide wait.
+        assert_eq!(
+            capacity_retry_delay("replay push failed: field \"rate limited\" is unknown"),
+            None
+        );
+        assert_eq!(capacity_retry_delay("rate limited by the operator"), None);
     }
 
     fn failure(acknowledged: bool) -> p2p::sync::PushFailure {
