@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use iroh::{Endpoint, EndpointId};
 use iroh_gossip::net::Gossip;
-use n0_future::task::{AbortHandle, JoinHandle, JoinSet};
+use n0_future::task::JoinHandle;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
@@ -19,6 +19,7 @@ use defra_core::thread_bounds::MaybeSend;
 
 use crate::bitswap::ReplicatorRegistry;
 use crate::message::PushLogReply;
+use crate::tracked_task::{TrackedAbort, TrackedTaskSet};
 use crate::transport::{PeerAddr, PeerId, TransportEvent};
 
 use super::command::IrohCommand;
@@ -30,7 +31,6 @@ use super::endpoint_config::{
 use super::endpoint_rpc::{new_connection_cache, ConnectionCache};
 use super::endpoint_streams::handle_incoming;
 use super::gossip_heal::{self, GossipHealer};
-use super::join_set;
 use super::peer_map::{parse_endpoint_id, PeerMap};
 use super::protocols;
 
@@ -65,41 +65,34 @@ pub(super) type SubscriptionSenders = Vec<(String, iroh_gossip::api::GossipSende
 
 /// Active block sync task.
 pub(super) struct ActiveSync {
-    pub(super) abort_handle: AbortHandle,
+    pub(super) abort_handle: TrackedAbort,
 }
 
-pub(super) type SpawnedTasks = Arc<parking_lot::Mutex<Option<JoinSet<()>>>>;
+pub(super) type SpawnedTasks = Arc<parking_lot::Mutex<Option<TrackedTaskSet>>>;
 pub(super) type PendingPushLogReplies =
     Arc<parking_lot::Mutex<HashMap<String, oneshot::Sender<PushLogReply>>>>;
 
 pub(super) fn spawn_task(
     spawned_tasks: &SpawnedTasks,
     future: impl Future<Output = ()> + MaybeSend + 'static,
-) -> Option<AbortHandle> {
-    let mut tasks = spawned_tasks.lock();
-    let tasks = tasks.as_mut()?;
-    // Reap completed work so periodic gossip healing does not grow the set.
-    while let Some(result) = join_set::try_join_next(tasks) {
-        if let Err(error) = result {
-            if !error.is_cancelled() {
-                debug!(%error, "Tracked Iroh spawned task failed");
-            }
-        }
-    }
-    Some(tasks.spawn(future))
+) -> Option<TrackedAbort> {
+    Some(spawned_tasks.lock().as_mut()?.spawn(future))
 }
 
 async fn shutdown_tracked_tasks(spawned_tasks: SpawnedTasks, readers: Vec<JoinHandle<()>>) {
     // Closing registration under the spawn lock also covers child tasks
     // scheduled by work that was already running when shutdown began.
-    let tasks = spawned_tasks.lock().take();
-    let task_count = tasks.as_ref().map_or(0, JoinSet::len) + readers.len();
+    let tasks = spawned_tasks
+        .lock()
+        .take()
+        .map_or_else(Vec::new, |mut tasks| tasks.abort_all());
+    let task_count = tasks.len() + readers.len();
     for reader in &readers {
         reader.abort();
     }
     let drain = async move {
-        if let Some(mut tasks) = tasks {
-            join_set::shutdown(&mut tasks).await;
+        for task in tasks {
+            let _ = task.await;
         }
         for reader in readers {
             let _ = reader.await;
@@ -204,7 +197,8 @@ async fn run_event_loop(
     let raw_topics: Arc<parking_lot::Mutex<std::collections::HashSet<String>>> =
         Arc::new(parking_lot::Mutex::new(std::collections::HashSet::new()));
     let mut active_syncs: HashMap<u64, ActiveSync> = HashMap::new();
-    let spawned_tasks: SpawnedTasks = Arc::new(parking_lot::Mutex::new(Some(JoinSet::new())));
+    let spawned_tasks: SpawnedTasks =
+        Arc::new(parking_lot::Mutex::new(Some(TrackedTaskSet::default())));
     let mut next_query_id: u64 = 1;
 
     let heal_enabled = gossip_heal_config.enabled();

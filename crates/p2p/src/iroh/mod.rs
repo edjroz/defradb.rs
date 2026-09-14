@@ -20,7 +20,6 @@ mod endpoint_config;
 mod endpoint_rpc;
 mod endpoint_streams;
 mod gossip_heal;
-mod join_set;
 #[cfg(test)]
 mod mux_tests;
 mod peer_map;

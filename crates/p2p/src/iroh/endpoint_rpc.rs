@@ -956,7 +956,8 @@ pub(super) async fn handle_block_sync(
         "selective"
     };
 
-    while let Some(task) = super::join_set::join_next(&mut tasks).await {
+    // The browser JoinSet has no join_next; poll_join_next exists on both.
+    while let Some(task) = std::future::poll_fn(|cx| tasks.poll_join_next(cx)).await {
         match task {
             Ok(attempt) if attempt.outcome.is_success() => {
                 any_success = true;

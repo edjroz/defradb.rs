@@ -71,12 +71,12 @@ use acp::DocumentACP;
 use blockstore::Blockstore;
 use cid::Cid;
 use defra_core::thread_bounds::MaybeSend;
-use n0_future::task::JoinHandle;
 use parking_lot::Mutex;
 use tokio::sync::{watch, Notify, OwnedSemaphorePermit, Semaphore};
 
 use crate::bitswap::{AccessMode, ReplicatorRegistry};
 use crate::replicator::ReplicationFilterMatcher;
+use crate::tracked_task::TrackedTask;
 use crate::transport::{P2PTransport, PeerId};
 
 use super::broadcaster::Broadcaster;
@@ -268,7 +268,7 @@ struct SyncShutdownState {
     shutdown_notify: Notify,
     shutdown_complete: watch::Receiver<bool>,
     shutdown_complete_tx: Mutex<Option<watch::Sender<bool>>>,
-    background_tasks: Mutex<Vec<JoinHandle<()>>>,
+    background_tasks: Mutex<Vec<TrackedTask>>,
     non_authoritative_broadcast_slots: Arc<Semaphore>,
     non_authoritative_broadcast_high_water: AtomicUsize,
     non_authoritative_broadcast_rejected: AtomicU64,
@@ -281,7 +281,7 @@ struct SyncShutdownState {
 
 enum PendingDagFetchTask {
     Scheduled,
-    Running(JoinHandle<()>),
+    Running(TrackedTask),
 }
 
 const BACKGROUND_TASK_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(500);
@@ -445,7 +445,7 @@ impl SyncShutdownHandle {
         // track live tasks instead of total spawn count (#1099).
         tasks.retain(|task| !task.is_finished());
         // Hold the registry lock through spawning so shutdown cannot miss the task.
-        tasks.push(n0_future::task::spawn(future));
+        tasks.push(TrackedTask::spawn(future));
         true
     }
 
@@ -541,7 +541,7 @@ impl SyncShutdownHandle {
         }
 
         let shutdown = self.clone();
-        let task = n0_future::task::spawn(async move {
+        let task = TrackedTask::spawn(async move {
             tokio::select! {
                 _ = shutdown.cancelled() => {}
                 _ = future => {}
@@ -581,7 +581,11 @@ impl SyncShutdownHandle {
         });
 
         let deadline = n0_future::time::Instant::now() + timeout;
-        let mut handles = handles.into_iter();
+        let mut handles = handles
+            .into_iter()
+            .map(TrackedTask::into_join_handle)
+            .collect::<Vec<_>>()
+            .into_iter();
         while let Some(mut handle) = handles.next() {
             let result = n0_future::time::timeout(
                 deadline.saturating_duration_since(n0_future::time::Instant::now()),

@@ -230,6 +230,37 @@ mod tests {
         assert!(matches!(not_hex, Err(WasmError::InvalidArgument(_))));
     }
 
+    /// Dials a real peer through a real relay, which is the only thing that
+    /// proves a browser can reach the network at all rather than merely bind.
+    /// It needs a peer to dial, so it is skipped unless both
+    /// `DEFRA_TEST_IROH_RELAY` (a relay URL) and `DEFRA_TEST_IROH_PEER` (that
+    /// peer's endpoint id) are set when the test is compiled.
+    #[wasm_bindgen_test]
+    async fn dials_a_peer_through_a_relay() {
+        let (Some(relay), Some(peer)) = (
+            option_env!("DEFRA_TEST_IROH_RELAY"),
+            option_env!("DEFRA_TEST_IROH_PEER"),
+        ) else {
+            return;
+        };
+
+        let json = format!("{{\"relay_urls\":[\"{relay}\"]}}");
+        let session = IrohSession::connect_impl(config(&json))
+            .await
+            .expect("endpoint binds against the configured relay");
+
+        session
+            .dial_impl(&format!("{peer}@{relay}"))
+            .await
+            .expect("browser dials the peer through the relay");
+
+        let peers = session.connected_peers().await.expect("peers are listable");
+        let peers: Vec<String> = serde_wasm_bindgen::from_value(peers).expect("peers decode");
+        assert!(peers.iter().any(|connected| connected == peer));
+
+        session.close().await;
+    }
+
     /// Address parsing is deliberately permissive — anything unrecognized is
     /// read as a bare endpoint id, so only an empty address fails here. A
     /// junk address fails at dial time instead, against the network.

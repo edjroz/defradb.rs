@@ -79,6 +79,7 @@ pub mod sync;
 #[cfg(all(any(test, feature = "test-utils"), feature = "libp2p-transport"))]
 pub mod testutil;
 pub mod topics;
+pub mod tracked_task;
 pub mod transport;
 #[cfg(feature = "libp2p-transport")]
 pub mod two_stream;
