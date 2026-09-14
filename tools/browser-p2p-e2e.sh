@@ -78,4 +78,8 @@ if grep -qE "^test result: ok\. 1 passed" "$work/browser.log"; then
 fi
 echo "--- node log ---" >&2
 tail -n 200 "$work/node.log" >&2
-exit "${status:-1}"
+# A zero status here means Cargo succeeded without reporting the relay test.
+if [ "$status" -ne 0 ]; then
+    exit "$status"
+fi
+exit 1
