@@ -326,12 +326,13 @@ impl<B: Blockstore + 'static> SyncManager<B> {
         let announced_block_kind = announced_block_kind(&msg.block);
         let head_priority = announced_block_kind.priority();
         // Shed only a genuinely new head that would consume a pending-DAG
-        // slot. A descendant, a durably owned root, and a head already
-        // superseded or covered within its sender scope each ack below without
-        // registering anything; a sender that reads the at-capacity nack as
-        // success would otherwise drop them for good.
+        // slot. A durably owned root and a head already superseded or covered
+        // within its sender scope each ack below without registering anything;
+        // a sender that reads the at-capacity nack as success would otherwise
+        // drop them for good. A descendant carries no such obligation of its
+        // own: `can_process_pushlog` admits it only while a registered root
+        // waits on it, so unawaited bytes stay inside the cap.
         if !self.can_process_pushlog(cid)
-            && announced_block_kind != AnnouncedBlockKind::Descendant
             && !self.persisted_roots.read().contains(cid)
             && !self.scope_head_is_refresh_or_newer(
                 *cid,
