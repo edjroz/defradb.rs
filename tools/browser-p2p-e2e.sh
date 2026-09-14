@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # A browser peer and a native node replicating through the relay the node hosts.
 #
-# Starts `defra` with an iroh relay server, then runs defra-wasm's p2p_relay
-# test in headless Firefox against it. The browser test does the asserting;
+# Starts `defra` with an iroh relay server and local document ACP, then runs
+# defra-wasm's p2p_relay tests in headless Firefox against it. The browser
+# tests do the asserting;
 # this script only stands the node up and tears it down.
 #
 # Needs: wasm32-unknown-unknown target, wasm-bindgen-test-runner, geckodriver,
@@ -56,8 +57,10 @@ sed -i \
 sed -i "s|^net:$|net:\n  iroh_relay_server:\n    http_bind_addr: 127.0.0.1:${relay_port}\n    public_url: ${relay}|" \
     "$work/config.yaml"
 
-"$defra" --rootdir "$work" --no-keyring start --store memory --no-telemetry \
-    --url "127.0.0.1:${api_port}" >"$work/node.log" 2>&1 &
+# Local document ACP, so the browser tests can check which signer the node lets
+# update a protected document. Unprotected collections still replicate openly.
+"$defra" --rootdir "$work" --no-keyring --document-acp-type local start --store memory \
+    --no-telemetry --url "127.0.0.1:${api_port}" >"$work/node.log" 2>&1 &
 node_pid=$!
 for _ in $(seq 1 300); do
     curl -sf "${api}/api/v0/p2p/info" >/dev/null 2>&1 && break
@@ -66,16 +69,22 @@ for _ in $(seq 1 300); do
 done
 
 status=0
-DEFRA_E2E_API="$api" DEFRA_E2E_RELAY="$relay" \
+# The runner's 20 second default covers the whole suite, which spends most of
+# its time waiting on replication across the relay.
+DEFRA_E2E_API="$api" DEFRA_E2E_RELAY="$relay" WASM_BINDGEN_TEST_TIMEOUT=300 \
     CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
     cargo test -p defra-wasm --target wasm32-unknown-unknown --features relay-e2e --test p2p_relay \
     --manifest-path "$root/Cargo.toml" 2>&1 | tee "$work/browser.log" || status=$?
 
 # The runner can fail to kill a sandboxed geckodriver after the results print,
 # so the result line is the verdict, as it is for the other browser tests.
-if grep -qE "^test result: ok\. 1 passed" "$work/browser.log"; then
+if grep -qE "^test result: ok\. 4 passed" "$work/browser.log"; then
     exit 0
 fi
 echo "--- node log ---" >&2
 tail -n 200 "$work/node.log" >&2
-exit "${status:-1}"
+# A zero status here means Cargo succeeded without reporting the relay test.
+if [ "$status" -ne 0 ]; then
+    exit "$status"
+fi
+exit 1
