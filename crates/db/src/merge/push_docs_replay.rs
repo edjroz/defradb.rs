@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use web_time::Instant;
 
 use p2p::message::PushLogReply;
 use p2p::transport::PeerId;
