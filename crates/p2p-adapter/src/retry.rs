@@ -1,10 +1,27 @@
 //! One durable sender retry state machine shared by every runtime and transport.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use p2p::transport::{P2PTransport, PeerAddr, PeerId};
 
 use crate::TransportDocPusher;
+
+/// How long one marker's replay may run before the peer is presumed silent.
+const REPLAY_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Markers one peer may consume per pass.
+///
+/// Peers are visited serially, so an unbounded pass is a starvation path: a
+/// black-holed peer holding the measured 3,488 markers costs
+/// `3_488 * REPLAY_TIMEOUT` — about 14.5 hours — during which no later peer is
+/// visited at all. The remainder is not dropped; the durable dispatch cursor
+/// resumes there on the next pass.
+const MAX_MARKERS_PER_PEER_PASS: usize = 64;
+
+/// Wall-clock a peer may hold the sweep, checked between markers. One in-flight
+/// replay can overrun it by at most `REPLAY_TIMEOUT`.
+const MAX_PEER_PASS: Duration = Duration::from_secs(30);
 
 /// A saturated or rate-limiting receiver is backpressure, not a verdict on
 /// the document: wait one paced sweep, never a ladder rung.
@@ -23,6 +40,14 @@ fn carries_reply_sentinel(error: &str, sentinel: &str) -> bool {
         || error
             .strip_suffix(sentinel)
             .is_some_and(|prefix| prefix.ends_with(": "))
+}
+
+/// True when the replay never reached the receiver.
+///
+/// That is evidence about the peer, not the document, so the rest of the peer's
+/// markers would only buy one `REPLAY_TIMEOUT` each for the same answer.
+fn is_peer_level_failure(error: &str) -> bool {
+    error.starts_with(p2p::error::TRANSPORT_UNAVAILABLE_PREFIX)
 }
 
 /// Record head announcements and acknowledgements behind the peer-scoped
@@ -209,18 +234,27 @@ pub async fn run_retry_pass<S, T>(
             // second two-second redial clock for markers whose ladder has not
             // elapsed yet.
             redial_replicator(peerstore, transport, &peer_id).await;
-            let _ = peerstore.reschedule_retry_peer(&peer_id_str, None).await;
+            let _ = peerstore.reschedule_retry_peer(&peer_id_str, None, 1).await;
             finish_peer(peerstore, &peer_id_str, false).await;
             continue;
         }
 
+        let deadline = n0_future::time::Instant::now() + MAX_PEER_PASS;
+        let mut attempted = 0usize;
         let mut failed = false;
         let mut progressed = false;
         let mut deferred = false;
+        let mut report = PassReport::default();
         for marker in &markers {
             if !force && !marker.retry_info.is_due() {
                 continue;
             }
+            if attempted >= MAX_MARKERS_PER_PEER_PASS || n0_future::time::Instant::now() >= deadline
+            {
+                report.truncated = true;
+                break;
+            }
+            attempted += 1;
             let replay = async {
                 if marker.is_collection_commit() {
                     doc_pusher
@@ -232,9 +266,7 @@ pub async fn run_retry_pass<S, T>(
                         .await
                 }
             };
-            let replay_result =
-                n0_future::time::timeout(std::time::Duration::from_secs(15), replay).await;
-            match replay_result {
+            match n0_future::time::timeout(REPLAY_TIMEOUT, replay).await {
                 Ok(Ok(())) => {
                     progressed = true;
                     // The PushLog acknowledgement already made the marker
@@ -247,15 +279,11 @@ pub async fn run_retry_pass<S, T>(
                     }
                 }
                 Ok(Err(error)) => {
-                    tracing::warn!(
-                        doc_id = %marker.doc_id,
-                        %peer_id,
-                        %error,
-                        "retry push failed"
-                    );
-                    if let Some(delay) = capacity_retry_delay(&error.to_string()) {
+                    let error = error.to_string();
+                    report.record(&marker.doc_id, &error);
+                    if let Some(delay) = capacity_retry_delay(&error) {
                         let _ = peerstore
-                            .reschedule_retry_peer(&peer_id_str, Some(delay))
+                            .reschedule_retry_peer(&peer_id_str, Some(delay), attempted as u64)
                             .await;
                         // Receiver saturation applies to the peer, not just
                         // this scope.  Rotate the durable cursor and wait for
@@ -263,23 +291,34 @@ pub async fn run_retry_pass<S, T>(
                         deferred = true;
                         break;
                     }
-                    // Specific to this document: keep its marker, keep going.
                     failed = true;
+                    if is_peer_level_failure(&error) {
+                        report.stopped_on = Some("transport unavailable");
+                        break;
+                    }
+                    // Specific to this document: keep its marker, keep going.
                 }
                 Err(_) => {
-                    tracing::warn!(doc_id = %marker.doc_id, %peer_id, "retry push timed out");
+                    report.record(&marker.doc_id, "replay timed out");
                     failed = true;
+                    report.stopped_on = Some("replay timeout");
+                    break;
                 }
             }
         }
+        report.emit(&peer_id, attempted, markers.len());
         if failed && !deferred {
             // One rung per pass.  A receiver that took documents is healthy:
             // come back at the first interval, not the rung earned while it
             // was unreachable.
             let _ = if progressed {
-                peerstore.restart_retry_peer(&peer_id_str).await
+                peerstore
+                    .restart_retry_peer(&peer_id_str, attempted as u64)
+                    .await
             } else {
-                peerstore.reschedule_retry_peer(&peer_id_str, None).await
+                peerstore
+                    .reschedule_retry_peer(&peer_id_str, None, attempted as u64)
+                    .await
             };
         }
 
@@ -288,6 +327,42 @@ pub async fn run_retry_pass<S, T>(
             .await
             .is_ok_and(|markers| markers.is_empty());
         finish_peer(peerstore, &peer_id_str, complete).await;
+    }
+}
+
+/// One warning per peer per pass. A peer with thousands of markers would
+/// otherwise emit one `warn!` per failed marker.
+#[derive(Default)]
+struct PassReport {
+    failures: usize,
+    truncated: bool,
+    /// Why the peer's pass stopped early, when the peer itself was the reason.
+    stopped_on: Option<&'static str>,
+    first: Option<(String, String)>,
+}
+
+impl PassReport {
+    fn record(&mut self, doc_id: &str, error: &str) {
+        self.failures += 1;
+        self.first
+            .get_or_insert_with(|| (doc_id.to_string(), error.to_string()));
+    }
+
+    fn emit(&self, peer_id: &PeerId, attempted: usize, due: usize) {
+        let Some((doc_id, error)) = self.first.as_ref() else {
+            return;
+        };
+        tracing::warn!(
+            %peer_id,
+            failures = self.failures,
+            attempted,
+            due,
+            truncated = self.truncated,
+            stopped_on = self.stopped_on.unwrap_or("nothing"),
+            first_doc_id = %doc_id,
+            first_error = %error,
+            "retry pass failed to replay markers"
+        );
     }
 }
 
@@ -376,6 +451,16 @@ mod tests {
             None
         );
         assert_eq!(capacity_retry_delay("rate limited by the operator"), None);
+    }
+
+    #[test]
+    fn only_the_transport_unavailable_prefix_stops_the_peer_pass() {
+        assert!(is_peer_level_failure(
+            "transport became unavailable after 0 successful block(s): connection closed"
+        ));
+        assert!(!is_peer_level_failure(
+            "replay push failed after 0 successful block(s): doc is not permitted"
+        ));
     }
 
     fn failure(acknowledged: bool) -> p2p::sync::PushFailure {

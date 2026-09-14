@@ -1,7 +1,8 @@
 //! Sweep-shape contracts for `run_retry_pass`: one pass over a peer's due
 //! markers must keep going past a per-document failure, treat a receiver's
 //! backpressure as a wait rather than a verdict, and pay at most one ladder
-//! rung per pass, returning to the first rung once documents land.
+//! rung per pass, returning to the first rung once documents land — while
+//! staying bounded, so one unresponsive peer cannot hold the serial sweep.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -24,8 +25,11 @@ use crate::transport_doc_pusher::TransportDocPusher;
 use crate::{P2PError, P2PErrorExt as _, P2PResult};
 
 const PEER: &str = "peer-a";
+const OTHER_PEER: &str = "peer-b";
 
-const CONNECTION_CLOSED: &str =
+/// A failure the replay path attributed to the document, not the transport:
+/// `push_docs` picks this prefix when the typed error is not connection-like.
+const DOCUMENT_FAILURE: &str =
     "replay push failed after 0 successful block(s): failed to write request: 9ddf7e88/1451: connection is closed";
 const RATE_LIMITED: &str =
     "peer rejected replay after 0 successful block(s): rate limited: too many requests, retry later";
@@ -137,10 +141,11 @@ impl TransportDocPusher for ScriptedPusher {
     }
 }
 
-/// A transport whose only job is to report `peer-a` as connected.
+/// A transport whose only job is to report the sweep's peers as connected.
 #[derive(Clone)]
 struct ConnectedTransport {
     local: PeerId,
+    connected: Vec<PeerId>,
 }
 
 #[async_trait]
@@ -157,7 +162,7 @@ impl p2p::P2PTransport for ConnectedTransport {
         Ok(Vec::new())
     }
     async fn dial(&self, _peer_id: &PeerId, _addrs: Vec<PeerAddr>) -> p2p::Result<()> {
-        unreachable!("peer-a is connected")
+        unreachable!("every sweep peer is connected")
     }
     async fn disconnect(&self, _peer_id: &PeerId) -> p2p::Result<()> {
         unreachable!()
@@ -166,7 +171,7 @@ impl p2p::P2PTransport for ConnectedTransport {
         unreachable!()
     }
     async fn connected_peers(&self) -> p2p::Result<Vec<PeerId>> {
-        Ok(vec![PeerId::new(PEER.to_string())])
+        Ok(self.connected.clone())
     }
     async fn listen_addresses(&self) -> p2p::Result<Vec<PeerAddr>> {
         unreachable!()
@@ -283,31 +288,42 @@ struct Sweep {
 impl Sweep {
     /// `peer-a` holds one due marker per document in `docs`, on a fresh ladder.
     async fn with_markers(docs: &[&str], script: &[(&str, Outcome)]) -> Self {
-        let store = Arc::new(RegolithStore::in_memory().unwrap());
-        let peerstore = Peerstore::new(Arc::clone(&store));
-        let replicator = ReplicatorInfo::from_raw(
-            PEER.to_string(),
-            vec!["collection-a".to_string()],
-            Vec::new(),
-        );
-        peerstore
-            .create_replicator(PEER, &replicator.to_bytes().unwrap())
-            .await
-            .unwrap();
-        let initial = RetryInfo::new_initial().to_bytes().unwrap();
-        for doc in docs {
-            peerstore
-                .record_push_failure(PEER, doc, "collection-a", &initial)
-                .await
-                .unwrap();
-        }
-        peerstore.activate_retry_peer(PEER).await.unwrap();
-        let pusher = Arc::new(ScriptedPusher {
-            peerstore: Peerstore::new(Arc::clone(&store)),
-            script: script
+        Self::with_peers(
+            &[(PEER, docs.iter().map(|doc| doc.to_string()).collect())],
+            script
                 .iter()
                 .map(|(doc, outcome)| (doc.to_string(), outcome.clone()))
                 .collect(),
+        )
+        .await
+    }
+
+    /// Every peer holds one due marker per document, all on a fresh ladder.
+    async fn with_peers(peers: &[(&str, Vec<String>)], script: HashMap<String, Outcome>) -> Self {
+        let store = Arc::new(RegolithStore::in_memory().unwrap());
+        let peerstore = Peerstore::new(Arc::clone(&store));
+        let initial = RetryInfo::new_initial().to_bytes().unwrap();
+        for (peer, docs) in peers {
+            let replicator = ReplicatorInfo::from_raw(
+                peer.to_string(),
+                vec!["collection-a".to_string()],
+                Vec::new(),
+            );
+            peerstore
+                .create_replicator(peer, &replicator.to_bytes().unwrap())
+                .await
+                .unwrap();
+            for doc in docs {
+                peerstore
+                    .record_push_failure(peer, doc, "collection-a", &initial)
+                    .await
+                    .unwrap();
+            }
+            peerstore.activate_retry_peer(peer).await.unwrap();
+        }
+        let pusher = Arc::new(ScriptedPusher {
+            peerstore: Peerstore::new(Arc::clone(&store)),
+            script,
             attempted: Mutex::new(Vec::new()),
         });
         Self {
@@ -315,6 +331,10 @@ impl Sweep {
             pusher,
             transport: ConnectedTransport {
                 local: PeerId::new("local".to_string()),
+                connected: peers
+                    .iter()
+                    .map(|(peer, _)| PeerId::new(peer.to_string()))
+                    .collect(),
             },
         }
     }
@@ -323,7 +343,7 @@ impl Sweep {
     async fn escalate(&self, rungs: usize) {
         for _ in 0..rungs {
             self.peerstore
-                .reschedule_retry_peer(PEER, None)
+                .reschedule_retry_peer(PEER, None, 1)
                 .await
                 .unwrap();
         }
@@ -349,9 +369,13 @@ impl Sweep {
     }
 
     async fn remaining_markers(&self) -> Vec<String> {
+        self.markers_for(PEER).await
+    }
+
+    async fn markers_for(&self, peer: &str) -> Vec<String> {
         let mut docs: Vec<String> = self
             .peerstore
-            .get_retry_documents(PEER)
+            .get_retry_documents(peer)
             .await
             .unwrap()
             .into_iter()
@@ -367,9 +391,9 @@ async fn document_failures_do_not_abandon_the_remaining_due_markers() {
     let sweep = Sweep::with_markers(
         &["a", "b", "c", "d", "e", "f"],
         &[
-            ("a", Outcome::Failed(CONNECTION_CLOSED)),
-            ("b", Outcome::Failed(CONNECTION_CLOSED)),
-            ("c", Outcome::Failed(CONNECTION_CLOSED)),
+            ("a", Outcome::Failed(DOCUMENT_FAILURE)),
+            ("b", Outcome::Failed(DOCUMENT_FAILURE)),
+            ("c", Outcome::Failed(DOCUMENT_FAILURE)),
         ],
     )
     .await;
@@ -386,18 +410,100 @@ async fn document_failures_do_not_abandon_the_remaining_due_markers() {
     assert_eq!(sweep.remaining_markers().await, ["a", "b", "c"]);
 }
 
+/// A replay timeout is evidence about the peer, not the document: the rest of
+/// the set would buy one `REPLAY_TIMEOUT` each for the same answer. The markers
+/// are kept and the durable cursor moves past the silent one, so the next pass
+/// resumes on the tail rather than re-hanging on the head.
 #[tokio::test(start_paused = true)]
-async fn a_replay_timeout_does_not_abandon_the_remaining_due_markers() {
+async fn a_replay_timeout_stops_the_peer_pass_and_resumes_past_the_hung_marker() {
     let sweep = Sweep::with_markers(&["a", "b", "c"], &[("a", Outcome::Hangs)]).await;
 
     sweep.run().await;
 
-    let mut attempted = sweep.pusher.attempted();
-    attempted.sort();
     assert_eq!(
-        attempted,
-        ["a", "b", "c"],
-        "one replay timeout abandoned the rest of the due set"
+        sweep.pusher.attempted(),
+        ["a"],
+        "a silent peer was charged a replay timeout for every remaining marker"
+    );
+    assert_eq!(sweep.remaining_markers().await, ["a", "b", "c"]);
+
+    sweep.peerstore.activate_retry_peer(PEER).await.unwrap();
+    sweep.run().await;
+
+    assert_eq!(
+        sweep.pusher.attempted(),
+        ["a", "b", "c", "a"],
+        "the next pass restarted on the hung marker instead of resuming past it"
+    );
+}
+
+/// One peer's pass is capped, and the durable dispatch cursor makes the next
+/// pass pick up the tail instead of re-walking the head of the set.
+#[tokio::test]
+async fn a_peer_pass_is_bounded_and_the_next_pass_resumes_where_it_stopped() {
+    let bound = crate::retry::MAX_MARKERS_PER_PEER_PASS;
+    let docs: Vec<String> = (0..bound * 2).map(|i| format!("doc-{i:03}")).collect();
+    let script = docs
+        .iter()
+        .map(|doc| (doc.clone(), Outcome::Failed(DOCUMENT_FAILURE)))
+        .collect();
+    let sweep = Sweep::with_peers(&[(PEER, docs.clone())], script).await;
+
+    sweep.run().await;
+
+    assert_eq!(
+        sweep.pusher.attempted(),
+        docs[..bound],
+        "one peer pass was not bounded by the marker cap"
+    );
+
+    sweep.peerstore.activate_retry_peer(PEER).await.unwrap();
+    sweep.run().await;
+
+    assert_eq!(
+        sweep.pusher.attempted()[bound],
+        docs[bound],
+        "the second pass restarted at the head of the set and starved its tail"
+    );
+}
+
+/// The regression the bounded pass exists for: peers are visited serially, so
+/// before the bound a black-holed peer holding the measured 3,488 markers could
+/// hold one pass for `3_488 * 15 s` — about 14.5 hours — and no later peer was
+/// visited at all.
+#[tokio::test(start_paused = true)]
+async fn one_hung_peer_does_not_delay_a_healthy_peer() {
+    let hung: Vec<String> = (0..40).map(|i| format!("a-{i:02}")).collect();
+    let healthy: Vec<String> = (0..3).map(|i| format!("b-{i}")).collect();
+    let script = hung
+        .iter()
+        .map(|doc| (doc.clone(), Outcome::Hangs))
+        .collect();
+    let sweep = Sweep::with_peers(
+        &[(PEER, hung.clone()), (OTHER_PEER, healthy.clone())],
+        script,
+    )
+    .await;
+
+    let started = tokio::time::Instant::now();
+    sweep.run().await;
+    let elapsed = started.elapsed();
+
+    let stranded = sweep.markers_for(OTHER_PEER).await;
+    assert!(
+        stranded.is_empty(),
+        "the healthy peer went unserved behind a hung peer: {stranded:?}"
+    );
+    assert_eq!(
+        sweep.markers_for(PEER).await.len(),
+        hung.len(),
+        "the hung peer lost markers it never delivered"
+    );
+    // Stopping on the timeout costs one REPLAY_TIMEOUT, well inside the pass
+    // budget that would otherwise cap a peer that keeps answering slowly.
+    assert!(
+        elapsed < crate::retry::MAX_PEER_PASS,
+        "one hung peer held the serial sweep for {elapsed:?}"
     );
 }
 
@@ -425,9 +531,9 @@ async fn one_pass_advances_the_ladder_by_at_most_one_rung() {
     let sweep = Sweep::with_markers(
         &["a", "b", "c"],
         &[
-            ("a", Outcome::Failed(CONNECTION_CLOSED)),
-            ("b", Outcome::Failed(CONNECTION_CLOSED)),
-            ("c", Outcome::Failed(CONNECTION_CLOSED)),
+            ("a", Outcome::Failed(DOCUMENT_FAILURE)),
+            ("b", Outcome::Failed(DOCUMENT_FAILURE)),
+            ("c", Outcome::Failed(DOCUMENT_FAILURE)),
         ],
     )
     .await;
@@ -446,7 +552,7 @@ async fn one_pass_advances_the_ladder_by_at_most_one_rung() {
 async fn a_pass_that_delivered_documents_returns_the_peer_to_the_first_rung() {
     let sweep = Sweep::with_markers(
         &["a", "b", "c"],
-        &[("a", Outcome::Failed(CONNECTION_CLOSED))],
+        &[("a", Outcome::Failed(DOCUMENT_FAILURE))],
     )
     .await;
     sweep.escalate(6).await;

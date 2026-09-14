@@ -603,10 +603,15 @@ impl<S: Store> Peerstore<S> {
     /// This method owns the per-peer writer and reads the current value inside
     /// the write transaction.  Callers never blind-write a stale snapshot over
     /// reconnect activation or a concurrent marker registration.
+    ///
+    /// `advance_cursor_by` is the number of markers the finished pass consumed:
+    /// a bounded pass must resume past them, or the tail of a large marker set
+    /// is never reached.
     pub async fn reschedule_retry_peer(
         &self,
         peer_id: &str,
         defer_for: Option<std::time::Duration>,
+        advance_cursor_by: u64,
     ) -> Result<bool> {
         let _retry_guard = retry_peer_lock(peer_id).write_arc().await;
         retry_push_txn_conflicts(|| async {
@@ -620,7 +625,7 @@ impl<S: Store> Peerstore<S> {
             };
             let mut info =
                 super::RetryInfo::from_bytes(&bytes).map_err(crate::corekv::Error::Other)?;
-            info.advance_dispatch_cursor();
+            info.advance_dispatch_cursor(advance_cursor_by);
             if let Some(delay) = defer_for {
                 info.defer_for(delay);
             } else {
@@ -637,7 +642,7 @@ impl<S: Store> Peerstore<S> {
     /// Return a peer to the first ladder rung after a pass that delivered
     /// documents. Escalation is evidence of an unreachable peer; a peer that
     /// is taking documents has refuted it.
-    pub async fn restart_retry_peer(&self, peer_id: &str) -> Result<bool> {
+    pub async fn restart_retry_peer(&self, peer_id: &str, advance_cursor_by: u64) -> Result<bool> {
         let _retry_guard = retry_peer_lock(peer_id).write_arc().await;
         retry_push_txn_conflicts(|| async {
             let mut txn = self.store.new_txn(false).await?;
@@ -650,7 +655,7 @@ impl<S: Store> Peerstore<S> {
             };
             let mut info =
                 super::RetryInfo::from_bytes(&bytes).map_err(crate::corekv::Error::Other)?;
-            info.advance_dispatch_cursor();
+            info.advance_dispatch_cursor(advance_cursor_by);
             info.num_retries = 0;
             info.bump_with_schedule(peer_id, &self.retry_schedule);
             txn.set(&key, &info.to_bytes().map_err(crate::corekv::Error::Other)?)
