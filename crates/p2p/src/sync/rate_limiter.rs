@@ -6,7 +6,8 @@
 //! Tokens refill at a constant rate up to the bucket capacity.
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use parking_lot::Mutex;
 

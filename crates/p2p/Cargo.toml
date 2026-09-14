@@ -36,6 +36,9 @@ futures = { workspace = true }
 # Spawning that resolves to tokio natively and to wasm-bindgen-futures in a
 # browser, behind one JoinHandle surface. iroh already builds on it.
 n0-future = "0.3"
+# std::time::Instant and SystemTime panic in a browser. This is std verbatim
+# off-wasm, so native timing behavior is untouched.
+web-time.workspace = true
 
 # Serialization
 serde = { workspace = true }

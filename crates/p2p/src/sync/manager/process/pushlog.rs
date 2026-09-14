@@ -1,7 +1,8 @@
 //! PushLog processing and block storage.
 
 use std::collections::HashSet;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use cid::Cid;
 
@@ -77,7 +78,7 @@ impl<B: Blockstore + 'static> SyncManager<B> {
                         error = %error,
                         "Retryable PushLog storage operation failed; backing off and retrying"
                     );
-                    tokio::time::sleep(retriable_pushlog_delay(attempt)).await;
+                    n0_future::time::sleep(retriable_pushlog_delay(attempt)).await;
                     attempt += 1;
                 }
                 Err(error) => return Err(error),
@@ -597,7 +598,7 @@ impl<B: Blockstore + 'static> SyncManager<B> {
                         attempts: 0,
                         fetch_failures: 0,
                         last_fetch_error: None,
-                        next_retry_at: tokio::time::Instant::now(),
+                        next_retry_at: n0_future::time::Instant::now(),
                         dispatches: 0,
                         storage_blocker: None,
                     },
@@ -1084,7 +1085,7 @@ mod tests {
             manager.pending_dag_missing(&collection_cid),
             vec![field_cid]
         );
-        let due = manager.claim_due_pending_dag_retries(tokio::time::Instant::now());
+        let due = manager.claim_due_pending_dag_retries(n0_future::time::Instant::now());
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].0, collection_cid);
         assert_eq!(due[0].1.missing, [field_cid].into_iter().collect());
@@ -1145,7 +1146,7 @@ mod tests {
             .await
             .expect("the later composite head should use the stored descendant");
 
-        assert!(manager.try_claim_pending_dag_dispatch(&head_cid, tokio::time::Instant::now()));
+        assert!(manager.try_claim_pending_dag_dispatch(&head_cid, n0_future::time::Instant::now()));
         assert!(manager
             .retry_pending_dag(&head_cid)
             .await
@@ -1175,14 +1176,14 @@ mod tests {
         let message = make_broadcast("doc123", root_cid, root_block, "collection1");
 
         let process_manager = Arc::clone(&manager);
-        let process = tokio::spawn(async move {
+        let process = n0_future::task::spawn(async move {
             process_manager
                 .process_pushlog(&message, Some("peer-1"), false, None)
                 .await
         });
 
         pending_store.replace_entered.notified().await;
-        let claimed = manager.claim_due_pending_dag_retries(tokio::time::Instant::now());
+        let claimed = manager.claim_due_pending_dag_retries(n0_future::time::Instant::now());
         assert_eq!(
             claimed.len(),
             0,
@@ -1198,7 +1199,7 @@ mod tests {
             events.try_recv().is_err(),
             "the PushLog path must not emit outside the receiver clock"
         );
-        let claimed = manager.claim_due_pending_dag_retries(tokio::time::Instant::now());
+        let claimed = manager.claim_due_pending_dag_retries(n0_future::time::Instant::now());
         assert_eq!(claimed.len(), 1);
         assert_eq!(claimed[0].0, root_cid);
     }
@@ -1235,7 +1236,7 @@ mod tests {
         assert_eq!(manager.pending_dag_count(), 1);
         assert_eq!(
             manager
-                .claim_due_pending_dag_retries(tokio::time::Instant::now())
+                .claim_due_pending_dag_retries(n0_future::time::Instant::now())
                 .len(),
             1
         );
@@ -1270,7 +1271,7 @@ mod tests {
 
         let owner_manager = Arc::clone(&manager);
         let owner_message = Arc::clone(&message);
-        let owner = tokio::spawn(async move {
+        let owner = n0_future::task::spawn(async move {
             owner_manager
                 .process_pushlog(&owner_message, Some("peer-0"), false, None)
                 .await
@@ -1283,7 +1284,7 @@ mod tests {
         for peer in 1..ANNOUNCEMENT_COUNT {
             let manager = Arc::clone(&manager);
             let message = Arc::clone(&message);
-            suppressed.push(tokio::spawn(async move {
+            suppressed.push(n0_future::task::spawn(async move {
                 let peer = format!("peer-{peer}");
                 manager
                     .process_pushlog(&message, Some(&peer), false, None)
@@ -1291,7 +1292,7 @@ mod tests {
             }));
         }
 
-        tokio::time::timeout(Duration::from_secs(1), async {
+        n0_future::time::timeout(Duration::from_secs(1), async {
             for task in suppressed {
                 let result = task.await.expect("suppressed task should not panic");
                 assert!(
@@ -1320,7 +1321,7 @@ mod tests {
             .expect("owner should complete");
 
         assert!(events.try_recv().is_err());
-        let claimed = manager.claim_due_pending_dag_retries(tokio::time::Instant::now());
+        let claimed = manager.claim_due_pending_dag_retries(n0_future::time::Instant::now());
         assert_eq!(claimed.len(), 1);
         assert_eq!(claimed[0].0, root_cid);
         assert_eq!(manager.pending_dag_count(), 1);
@@ -1367,7 +1368,7 @@ mod tests {
             .try_acquire_nowait(&cid)
             .expect("simulate the ordinary announcement owner");
 
-        let replay_result = tokio::time::timeout(
+        let replay_result = n0_future::time::timeout(
             Duration::from_secs(1),
             manager.process_pushlog(&message, Some("peer-1"), true, Some(authorization.clone())),
         )

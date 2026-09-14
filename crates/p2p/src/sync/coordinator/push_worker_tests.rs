@@ -88,7 +88,7 @@ async fn slow_peer_does_not_starve_healthy_peers() {
         backlog.try_enqueue(job("healthy", &[index]));
     }
 
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let deadline = n0_future::time::Instant::now() + Duration::from_secs(5);
     loop {
         let healthy_sent = transport
             .sent()
@@ -99,10 +99,10 @@ async fn slow_peer_does_not_starve_healthy_peers() {
             break;
         }
         assert!(
-            tokio::time::Instant::now() < deadline,
+            n0_future::time::Instant::now() < deadline,
             "healthy peer starved: only {healthy_sent}/5 sends completed while a slow peer holds a worker"
         );
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        n0_future::time::sleep(Duration::from_millis(10)).await;
     }
 
     let snap = backlog.snapshot();
@@ -124,17 +124,17 @@ async fn stalled_send_times_out_and_reports_push_failure() {
 
     backlog.try_enqueue(job("slow", b"slow-1"));
 
-    let failure = tokio::time::timeout(Duration::from_secs(5), failure_rx.recv())
+    let failure = n0_future::time::timeout(Duration::from_secs(5), failure_rx.recv())
         .await
         .expect("timed-out push must report a failure")
         .expect("failure channel open");
     assert_eq!(failure.peer_id, "slow");
     assert_eq!(failure.doc_id, "doc-slow-736c6f772d31");
 
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    let deadline = n0_future::time::Instant::now() + Duration::from_secs(2);
     while backlog.snapshot().failed_total == 0 {
-        assert!(tokio::time::Instant::now() < deadline);
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert!(n0_future::time::Instant::now() < deadline);
+        n0_future::time::sleep(Duration::from_millis(5)).await;
     }
     assert_eq!(backlog.snapshot().active_jobs, 0);
     backlog.close();
@@ -171,7 +171,7 @@ async fn capacity_nack_demotes_queued_peer_work_to_persisted_retry() {
     assert_eq!(completion, JobCompletion::Failed);
     let mut failed_docs = Vec::new();
     for _ in 0..expected_docs.len() {
-        let failure = tokio::time::timeout(Duration::from_secs(1), failure_rx.recv())
+        let failure = n0_future::time::timeout(Duration::from_secs(1), failure_rx.recv())
             .await
             .expect("capacity failure must reach the retry recorder")
             .expect("failure channel open");
@@ -421,17 +421,17 @@ async fn superseded_active_failure_never_enters_persisted_retry() {
     spawn_push_workers(context, &shutdown);
 
     backlog.try_enqueue(versioned_job("peer", 1));
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    let deadline = n0_future::time::Instant::now() + Duration::from_secs(1);
     while transport.sent().is_empty() {
-        assert!(tokio::time::Instant::now() < deadline);
-        tokio::time::sleep(Duration::from_millis(2)).await;
+        assert!(n0_future::time::Instant::now() < deadline);
+        n0_future::time::sleep(Duration::from_millis(2)).await;
     }
     backlog.try_enqueue(versioned_job("peer", 2));
 
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    let deadline = n0_future::time::Instant::now() + Duration::from_secs(2);
     while backlog.snapshot().completed_total < 1 {
-        assert!(tokio::time::Instant::now() < deadline);
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert!(n0_future::time::Instant::now() < deadline);
+        n0_future::time::sleep(Duration::from_millis(5)).await;
     }
     let events: Vec<_> = std::iter::from_fn(|| failure_rx.try_recv().ok()).collect();
     assert!(events.iter().any(|event| !event.create_retry));
@@ -462,7 +462,7 @@ async fn report_push_failure_backpressures_instead_of_dropping() {
     let peer = PeerId::new("slow".to_string());
     let reporter = {
         let slot = Arc::clone(&slot);
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             report_push_failure(
                 &slot,
                 &peer,
@@ -476,14 +476,14 @@ async fn report_push_failure_backpressures_instead_of_dropping() {
     };
 
     // Channel full: the reporter must wait, not drop.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    n0_future::time::sleep(Duration::from_millis(50)).await;
     assert!(
         !reporter.is_finished(),
         "reporter must block on a full channel"
     );
 
     assert_eq!(rx.recv().await.unwrap().doc_id, "occupant-doc");
-    let delivered = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+    let delivered = n0_future::time::timeout(Duration::from_secs(2), rx.recv())
         .await
         .expect("failure must be delivered once capacity frees")
         .unwrap();
@@ -550,7 +550,7 @@ async fn workers_exit_on_close() {
     assert_eq!(shutdown.retained_task_count(), 3);
 
     backlog.close();
-    let started = tokio::time::Instant::now();
+    let started = n0_future::time::Instant::now();
     shutdown.shutdown().await;
     assert!(started.elapsed() < Duration::from_secs(1));
 }

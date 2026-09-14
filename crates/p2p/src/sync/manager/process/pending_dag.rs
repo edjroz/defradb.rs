@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Instant;
+use web_time::Instant;
 
 use cid::Cid;
 
@@ -138,7 +138,7 @@ impl<B: Blockstore + 'static> SyncManager<B> {
     /// complete DAG awaiting a terminal merge outcome. `None` means no live
     /// receiver obligation is registered.
     pub fn next_pending_retry_in_ms(&self) -> Option<u64> {
-        let now = tokio::time::Instant::now();
+        let now = n0_future::time::Instant::now();
         self.pending_dags
             .read()
             .values()
@@ -393,7 +393,7 @@ impl<B: Blockstore + 'static> SyncManager<B> {
     pub fn try_claim_pending_dag_dispatch(
         &self,
         root_cid: &Cid,
-        now: tokio::time::Instant,
+        now: n0_future::time::Instant,
     ) -> bool {
         let mut pending = self.pending_dags.write();
         let Some(dag) = pending.get_mut(root_cid) else {
@@ -414,7 +414,7 @@ impl<B: Blockstore + 'static> SyncManager<B> {
     /// resetting its backoff rung. The retry clock performs the dispatch.
     pub fn expedite_pending_dag_retry(&self, root_cid: &Cid) {
         if let Some(dag) = self.pending_dags.write().get_mut(root_cid) {
-            dag.next_retry_at = dag.next_retry_at.min(tokio::time::Instant::now());
+            dag.next_retry_at = dag.next_retry_at.min(n0_future::time::Instant::now());
             if dag.is_recovery_registered {
                 self.pending_dag_ready.notify_one();
             }
@@ -427,7 +427,7 @@ impl<B: Blockstore + 'static> SyncManager<B> {
     /// behind the limiter.
     pub(crate) fn due_pending_dag_retries(
         &self,
-        now: tokio::time::Instant,
+        now: n0_future::time::Instant,
     ) -> Vec<(Cid, PendingDag)> {
         let mut pending = self.pending_dags.write();
         let released: Vec<_> = pending
@@ -467,7 +467,7 @@ impl<B: Blockstore + 'static> SyncManager<B> {
     #[cfg(test)]
     pub fn claim_due_pending_dag_retries(
         &self,
-        now: tokio::time::Instant,
+        now: n0_future::time::Instant,
     ) -> Vec<(Cid, PendingDag)> {
         self.due_pending_dag_retries(now)
             .into_iter()
@@ -822,7 +822,7 @@ impl<B: Blockstore + 'static> SyncManager<B> {
                 attempts: 0,
                 fetch_failures: 0,
                 last_fetch_error: None,
-                next_retry_at: tokio::time::Instant::now(),
+                next_retry_at: n0_future::time::Instant::now(),
                 dispatches: 0,
                 storage_blocker: None,
             };

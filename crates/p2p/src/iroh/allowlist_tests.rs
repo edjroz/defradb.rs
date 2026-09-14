@@ -9,9 +9,9 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use iroh::SecretKey;
+use n0_future::task::JoinHandle;
+use n0_future::time::{timeout, Instant};
 use tokio::sync::mpsc::Receiver;
-use tokio::task::JoinHandle;
-use tokio::time::{timeout, Instant};
 
 use super::{
     spawn_endpoint, IrohAllowlistConfig, IrohDiscoveryConfig, IrohEndpointConfig, IrohTransport,
@@ -93,8 +93,8 @@ async fn wait_gossip_message(events: &mut Events, dialer: &IrohTransport) {
 /// A peer refused by the allowlist must never appear connected on the
 /// accepting side, for as long as we keep checking.
 async fn assert_never_connects(dialer: &IrohTransport, server: &IrohTransport, window: Duration) {
-    let deadline = tokio::time::Instant::now() + window;
-    while tokio::time::Instant::now() < deadline {
+    let deadline = n0_future::time::Instant::now() + window;
+    while n0_future::time::Instant::now() < deadline {
         let connected = server.connected_peers().await.unwrap();
         assert!(
             !connected.iter().any(|p| p == dialer.local_peer_id()),

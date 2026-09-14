@@ -305,7 +305,7 @@ impl P2PTransport for TestTransport {
         assert_eq!(root_cid, self.root_cid);
         self.car_requests.fetch_add(1, Ordering::SeqCst);
         if self.hang_car_requests.load(Ordering::SeqCst) {
-            tokio::time::sleep(Duration::from_secs(600)).await;
+            n0_future::time::sleep(Duration::from_secs(600)).await;
             return Ok(());
         }
         self.blockstore
@@ -398,9 +398,9 @@ impl P2PTransport for TestTransport {
             let completion = self.stream_completion.lock().unwrap().clone();
             let stream_block_delay = *self.stream_block_delay.lock().unwrap();
             let stream_completed = Arc::clone(&self.stream_completed);
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 for (cid, data) in streamed_blocks {
-                    tokio::time::sleep(stream_block_delay).await;
+                    n0_future::time::sleep(stream_block_delay).await;
                     blockstore.put(&cid, &data).await.unwrap();
                 }
                 stream_completed.store(true, Ordering::SeqCst);
@@ -683,7 +683,7 @@ async fn exact_selective_batch_does_not_wait_for_a_lost_completion_signal() {
         PeerId::new("remote-peer".to_string()),
     )
     .with_block_sync_completions(completion);
-    let started = tokio::time::Instant::now();
+    let started = n0_future::time::Instant::now();
 
     let outcome = poll_fetch_blocks(
         &root_cid,
@@ -696,7 +696,7 @@ async fn exact_selective_batch_does_not_wait_for_a_lost_completion_signal() {
     .await;
 
     assert_eq!(outcome, ProviderWindowOutcome::Complete);
-    assert_eq!(tokio::time::Instant::now(), started);
+    assert_eq!(n0_future::time::Instant::now(), started);
     assert!(matches!(blockstore.has(&child_cid).await, Ok(true)));
 }
 
@@ -725,7 +725,7 @@ async fn exact_selective_failure_before_waiter_registration_is_observed_immediat
         PeerId::new("remote-peer".to_string()),
     )
     .with_block_sync_completions(completion);
-    let started = tokio::time::Instant::now();
+    let started = n0_future::time::Instant::now();
 
     let outcome = poll_fetch_blocks(
         &root_cid,
@@ -739,7 +739,7 @@ async fn exact_selective_failure_before_waiter_registration_is_observed_immediat
 
     assert_eq!(outcome, ProviderWindowOutcome::Stalled);
     assert_eq!(
-        tokio::time::Instant::now(),
+        n0_future::time::Instant::now(),
         started,
         "an early terminal result must not burn the 30-second watchdog"
     );
@@ -1371,7 +1371,7 @@ async fn poll_fetch_dag_releases_limiter_permit_during_backoff() {
 
     let limiter = DagFetchLimiter::new(1);
     let (event_tx, mut event_rx) = mpsc::channel(1);
-    let fetch = tokio::spawn(poll_fetch_dag(
+    let fetch = n0_future::task::spawn(poll_fetch_dag(
         transport.clone(),
         blockstore.clone(),
         event_tx,
@@ -1389,7 +1389,7 @@ async fn poll_fetch_dag_releases_limiter_permit_during_backoff() {
     // Let attempt 1 start (and therefore hold the only permit) before
     // competing for it.
     while transport.sync_batches().is_empty() {
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        n0_future::time::sleep(Duration::from_millis(10)).await;
     }
 
     // Resolves as soon as attempt 1's permit drops (start of backoff);

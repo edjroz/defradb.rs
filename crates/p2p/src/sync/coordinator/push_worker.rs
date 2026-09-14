@@ -134,7 +134,7 @@ async fn report_push_event(
         // recorder backpressure surface in the logs instead of silently
         // stalling the push pool.
         loop {
-            match tokio::time::timeout(Duration::from_secs(5), tx.reserve()).await {
+            match n0_future::time::timeout(Duration::from_secs(5), tx.reserve()).await {
                 Ok(Ok(permit)) => {
                     permit.send(failure);
                     return match durable_rx {
@@ -300,7 +300,7 @@ pub(super) async fn send_head_hint_via_transport<T: P2PTransport>(
 ) -> PushSendOutcome {
     use crate::error::is_at_capacity_message;
 
-    match tokio::time::timeout(
+    match n0_future::time::timeout(
         send_timeout,
         transport.send_two_stream_request(peer_id, request.clone()),
     )

@@ -11,9 +11,11 @@ use std::sync::Arc;
 
 use iroh::{Endpoint, EndpointId};
 use iroh_gossip::net::Gossip;
+use n0_future::task::{AbortHandle, JoinHandle, JoinSet};
 use tokio::sync::{mpsc, oneshot};
-use tokio::task::{AbortHandle, JoinHandle, JoinSet};
 use tracing::{debug, warn};
+
+use defra_core::thread_bounds::MaybeSend;
 
 use crate::bitswap::ReplicatorRegistry;
 use crate::message::PushLogReply;
@@ -28,6 +30,7 @@ use super::endpoint_config::{
 use super::endpoint_rpc::{new_connection_cache, ConnectionCache};
 use super::endpoint_streams::handle_incoming;
 use super::gossip_heal::{self, GossipHealer};
+use super::join_set;
 use super::peer_map::{parse_endpoint_id, PeerMap};
 use super::protocols;
 
@@ -62,7 +65,7 @@ pub(super) type SubscriptionSenders = Vec<(String, iroh_gossip::api::GossipSende
 
 /// Active block sync task.
 pub(super) struct ActiveSync {
-    pub(super) abort_handle: tokio::task::AbortHandle,
+    pub(super) abort_handle: AbortHandle,
 }
 
 pub(super) type SpawnedTasks = Arc<parking_lot::Mutex<Option<JoinSet<()>>>>;
@@ -71,12 +74,12 @@ pub(super) type PendingPushLogReplies =
 
 pub(super) fn spawn_task(
     spawned_tasks: &SpawnedTasks,
-    future: impl Future<Output = ()> + Send + 'static,
+    future: impl Future<Output = ()> + MaybeSend + 'static,
 ) -> Option<AbortHandle> {
     let mut tasks = spawned_tasks.lock();
     let tasks = tasks.as_mut()?;
     // Reap completed work so periodic gossip healing does not grow the set.
-    while let Some(result) = tasks.try_join_next() {
+    while let Some(result) = join_set::try_join_next(tasks) {
         if let Err(error) = result {
             if !error.is_cancelled() {
                 debug!(%error, "Tracked Iroh spawned task failed");
@@ -96,13 +99,13 @@ async fn shutdown_tracked_tasks(spawned_tasks: SpawnedTasks, readers: Vec<JoinHa
     }
     let drain = async move {
         if let Some(mut tasks) = tasks {
-            tasks.shutdown().await;
+            join_set::shutdown(&mut tasks).await;
         }
         for reader in readers {
             let _ = reader.await;
         }
     };
-    if tokio::time::timeout(std::time::Duration::from_secs(5), drain)
+    if n0_future::time::timeout(std::time::Duration::from_secs(5), drain)
         .await
         .is_err()
     {
@@ -160,7 +163,7 @@ pub async fn spawn_endpoint(
     let replicators = Arc::new(ReplicatorRegistry::new());
 
     let gossip_heal = config.gossip_heal.clone();
-    let task = tokio::spawn(run_event_loop(
+    let task = n0_future::task::spawn(run_event_loop(
         endpoint,
         gossip,
         gossip_heal,
@@ -190,7 +193,7 @@ async fn run_event_loop(
     event_tx: mpsc::Sender<TransportEvent<iroh::endpoint::SendStream>>,
     replicators: Arc<ReplicatorRegistry>,
 ) {
-    let shutdown_started = std::time::Instant::now();
+    let shutdown_started = web_time::Instant::now();
     let peer_map = Arc::new(parking_lot::Mutex::new(PeerMap::new()));
     let pending_pushlog_replies = Arc::new(parking_lot::Mutex::new(HashMap::<
         String,
@@ -205,8 +208,8 @@ async fn run_event_loop(
     let mut next_query_id: u64 = 1;
 
     let heal_enabled = gossip_heal_config.enabled();
-    let mut heal_tick = tokio::time::interval(gossip_heal_config.tick_period());
-    heal_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut heal_tick = n0_future::time::interval(gossip_heal_config.tick_period());
+    heal_tick.set_missed_tick_behavior(n0_future::time::MissedTickBehavior::Delay);
     let resources = EndpointResources {
         endpoint: endpoint.clone(),
         gossip: gossip.clone(),
@@ -296,7 +299,7 @@ async fn run_event_loop(
     drop(command_rx);
 
     // Clean up
-    let subscriptions_started = std::time::Instant::now();
+    let subscriptions_started = web_time::Instant::now();
     let mut readers = Vec::with_capacity(subscriptions.len());
     for (_, sub) in subscriptions.drain() {
         sub.reader_task.abort();
@@ -307,7 +310,7 @@ async fn run_event_loop(
         "Iroh endpoint shutdown: subscriptions aborted"
     );
 
-    let syncs_started = std::time::Instant::now();
+    let syncs_started = web_time::Instant::now();
     for (_, sync) in active_syncs.drain() {
         sync.abort_handle.abort();
     }
@@ -316,15 +319,15 @@ async fn run_event_loop(
         "Iroh endpoint shutdown: active syncs aborted"
     );
 
-    let tracked_started = std::time::Instant::now();
+    let tracked_started = web_time::Instant::now();
     shutdown_tracked_tasks(spawned_tasks, readers).await;
     debug!(
         elapsed_ms = tracked_started.elapsed().as_millis(),
         "Iroh endpoint shutdown: task drain finished"
     );
 
-    let gossip_started = std::time::Instant::now();
-    match tokio::time::timeout(std::time::Duration::from_secs(1), gossip.shutdown()).await {
+    let gossip_started = web_time::Instant::now();
+    match n0_future::time::timeout(std::time::Duration::from_secs(1), gossip.shutdown()).await {
         Ok(Ok(())) => warn!(
             elapsed_ms = gossip_started.elapsed().as_millis(),
             "Iroh endpoint shutdown: gossip stopped"
@@ -333,7 +336,7 @@ async fn run_event_loop(
         Err(_) => debug!("Timed out waiting for Iroh gossip shutdown"),
     }
 
-    let close_started = std::time::Instant::now();
+    let close_started = web_time::Instant::now();
     endpoint.close().await;
     warn!(
         close_elapsed_ms = close_started.elapsed().as_millis(),

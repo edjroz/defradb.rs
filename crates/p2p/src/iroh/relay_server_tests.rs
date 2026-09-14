@@ -5,7 +5,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
 use iroh::SecretKey;
-use tokio::task::JoinHandle;
+use n0_future::task::JoinHandle;
 
 use super::{
     spawn_endpoint, IrohDiscoveryConfig, IrohEndpointConfig, IrohRelayModeConfig, IrohRelayServer,
@@ -43,7 +43,7 @@ impl TestNode {
             vec![PeerAddr::new(relay_url.to_string())],
         );
         matches!(
-            tokio::time::timeout(RELAYED_DIAL_TIMEOUT, dial).await,
+            n0_future::time::timeout(RELAYED_DIAL_TIMEOUT, dial).await,
             Ok(Ok(()))
         )
     }
@@ -97,7 +97,7 @@ async fn relay_allowlist_refuses_unlisted_endpoints() {
         vec![PeerAddr::new(relay_url.clone())],
     );
     let connected = matches!(
-        tokio::time::timeout(DENIED_DIAL_TIMEOUT, dial).await,
+        n0_future::time::timeout(DENIED_DIAL_TIMEOUT, dial).await,
         Ok(Ok(()))
     );
     assert!(

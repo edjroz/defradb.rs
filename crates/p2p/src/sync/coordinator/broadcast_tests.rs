@@ -186,7 +186,7 @@ impl P2PTransport for TestTransport {
             block_bytes: req.block.len(),
         });
         if !self.send_delay.is_zero() {
-            tokio::time::sleep(self.send_delay).await;
+            n0_future::time::sleep(self.send_delay).await;
         }
         Ok(self
             .replies

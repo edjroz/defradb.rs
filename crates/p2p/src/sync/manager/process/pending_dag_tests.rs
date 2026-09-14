@@ -45,7 +45,7 @@ fn pending_dag_from(doc_id: &str, source_peer: Option<&str>, inserted_at: Instan
         attempts: 0,
         fetch_failures: 0,
         last_fetch_error: None,
-        next_retry_at: tokio::time::Instant::now(),
+        next_retry_at: n0_future::time::Instant::now(),
         dispatches: 0,
         storage_blocker: None,
     }
@@ -85,7 +85,7 @@ async fn storage_release_wakes_only_contended_roots_without_resetting_backoff() 
     let root = test_cid(910);
     let other = test_cid(911);
     let blocker = test_cid(912);
-    let now = tokio::time::Instant::now();
+    let now = n0_future::time::Instant::now();
     for cid in [root, other] {
         let mut dag = pending_dag("storage", Instant::now());
         dag.next_retry_at = now;
@@ -115,7 +115,7 @@ async fn storage_release_before_registration_does_not_lose_wakeup() {
     let root = test_cid(920);
     let blocker = test_cid(921);
     manager.insert_pending_dag(root, pending_dag("storage", Instant::now()));
-    let now = tokio::time::Instant::now();
+    let now = n0_future::time::Instant::now();
     assert!(manager.try_claim_pending_dag_dispatch(&root, now));
     let owner = manager.process_queue.try_acquire_nowait(&blocker).unwrap();
     drop(owner);
@@ -142,7 +142,7 @@ async fn pending_dag_wakeup_requires_registration_and_preserves_backoff() {
     manager.mark_pending_dag_recovery_registered(&root, inserted_at);
     assert!(manager.pending_dag_ready().now_or_never().is_some());
     assert!(manager.pending_dag_ready().now_or_never().is_none());
-    let now = tokio::time::Instant::now();
+    let now = n0_future::time::Instant::now();
     assert!(manager.try_claim_pending_dag_dispatch(&root, now));
     manager.mark_pending_dag_recovery_registered(&root, inserted_at);
     assert!(manager.pending_dag_ready().now_or_never().is_some());
@@ -282,14 +282,14 @@ async fn terminal_remove_and_quarantine_share_one_durable_metadata_writer() {
         .expect("seed pending record");
     manager.install_pending_dag_store(store.clone()).await;
 
-    let first = tokio::spawn({
+    let first = n0_future::task::spawn({
         let manager = Arc::clone(&manager);
         async move { manager.remove_persisted_pending(&root).await }
     });
     store.first_remove_entered.notified().await;
 
     let second_started = Arc::new(tokio::sync::Notify::new());
-    let second = tokio::spawn({
+    let second = n0_future::task::spawn({
         let manager = Arc::clone(&manager);
         let second_started = Arc::clone(&second_started);
         async move {
@@ -300,7 +300,7 @@ async fn terminal_remove_and_quarantine_share_one_durable_metadata_writer() {
     second_started.notified().await;
 
     let quarantine_started = Arc::new(tokio::sync::Notify::new());
-    let quarantine = tokio::spawn({
+    let quarantine = n0_future::task::spawn({
         let manager = Arc::clone(&manager);
         let quarantine_started = Arc::clone(&quarantine_started);
         async move {
@@ -613,7 +613,7 @@ async fn claim_bumps_clock_and_suppresses_duplicates() {
     dag.missing.insert(test_cid(2));
     assert!(manager.insert_pending_dag(root, dag));
 
-    let now = tokio::time::Instant::now();
+    let now = n0_future::time::Instant::now();
     // Fresh entry is due immediately (insert leaves next_retry_at = now).
     assert!(manager.try_claim_pending_dag_dispatch(&root, now));
     // Second claim in the same instant is suppressed.
@@ -621,7 +621,7 @@ async fn claim_bumps_clock_and_suppresses_duplicates() {
     // Becomes due again after the backoff rung reached by the first
     // claim (dispatches=1 -> retry_backoff(1) = 4s).
     tokio::time::advance(std::time::Duration::from_secs(4)).await;
-    assert!(manager.try_claim_pending_dag_dispatch(&root, tokio::time::Instant::now()));
+    assert!(manager.try_claim_pending_dag_dispatch(&root, n0_future::time::Instant::now()));
 }
 
 #[tokio::test(start_paused = true)]
@@ -651,12 +651,12 @@ async fn a_root_that_keeps_failing_is_not_retried_for_a_minute() {
     dag.missing.insert(test_cid(2));
     assert!(manager.insert_pending_dag(root, dag));
 
-    let start = tokio::time::Instant::now();
+    let start = n0_future::time::Instant::now();
     let mut dispatches = Vec::new();
     // Every dispatch fails to complete the DAG, so the root stays pending and
     // only the rung advances.
     while dispatches.len() < 5 {
-        let now = tokio::time::Instant::now();
+        let now = n0_future::time::Instant::now();
         if manager.try_claim_pending_dag_dispatch(&root, now) {
             dispatches.push(now.duration_since(start).as_secs());
             continue;
@@ -690,12 +690,16 @@ async fn a_forty_second_deadline_lands_between_the_fourth_and_fifth_retry() {
     dag.missing.insert(test_cid(2));
     assert!(manager.insert_pending_dag(root, dag));
 
-    let start = tokio::time::Instant::now();
+    let start = n0_future::time::Instant::now();
 
     // Walk the clock to 40s, claiming every dispatch that comes due.
     let mut within_forty = 0;
-    while tokio::time::Instant::now().duration_since(start).as_secs() < 40 {
-        if manager.try_claim_pending_dag_dispatch(&root, tokio::time::Instant::now()) {
+    while n0_future::time::Instant::now()
+        .duration_since(start)
+        .as_secs()
+        < 40
+    {
+        if manager.try_claim_pending_dag_dispatch(&root, n0_future::time::Instant::now()) {
             within_forty += 1;
         }
         tokio::time::advance(std::time::Duration::from_secs(1)).await;
@@ -705,13 +709,17 @@ async fn a_forty_second_deadline_lands_between_the_fourth_and_fifth_retry() {
         "the old deadline expires after the fourth dispatch"
     );
     assert!(
-        !manager.try_claim_pending_dag_dispatch(&root, tokio::time::Instant::now()),
+        !manager.try_claim_pending_dag_dispatch(&root, n0_future::time::Instant::now()),
         "and the fifth is not due yet, so the root is still pending at 40s"
     );
 
     // The budget the conformance suite now allows reaches it.
-    while tokio::time::Instant::now().duration_since(start).as_secs() < 90 {
-        if manager.try_claim_pending_dag_dispatch(&root, tokio::time::Instant::now()) {
+    while n0_future::time::Instant::now()
+        .duration_since(start)
+        .as_secs()
+        < 90
+    {
+        if manager.try_claim_pending_dag_dispatch(&root, n0_future::time::Instant::now()) {
             within_forty += 1;
         }
         tokio::time::advance(std::time::Duration::from_secs(1)).await;
@@ -729,15 +737,15 @@ async fn expedite_makes_entry_due_now_without_resetting_backoff() {
     let mut dag = pending_dag("doc", Instant::now());
     dag.missing.insert(test_cid(2));
     assert!(manager.insert_pending_dag(root, dag));
-    let now = tokio::time::Instant::now();
+    let now = n0_future::time::Instant::now();
     assert!(manager.try_claim_pending_dag_dispatch(&root, now)); // dispatches -> 1
     manager.expedite_pending_dag_retry(&root);
     assert!(manager.try_claim_pending_dag_dispatch(&root, now)); // dispatches -> 2
                                                                  // Next due time reflects dispatches=2 rung (8s), not a reset.
     tokio::time::advance(std::time::Duration::from_secs(4)).await;
-    assert!(!manager.try_claim_pending_dag_dispatch(&root, tokio::time::Instant::now()));
+    assert!(!manager.try_claim_pending_dag_dispatch(&root, n0_future::time::Instant::now()));
     tokio::time::advance(std::time::Duration::from_secs(4)).await;
-    assert!(manager.try_claim_pending_dag_dispatch(&root, tokio::time::Instant::now()));
+    assert!(manager.try_claim_pending_dag_dispatch(&root, n0_future::time::Instant::now()));
 }
 
 #[tokio::test(start_paused = true)]
@@ -752,13 +760,13 @@ async fn claim_due_includes_complete_roots_awaiting_terminal_merge() {
     // outcome, so the same clock can re-drive a transient merge failure.
     assert!(manager.insert_pending_dag(complete, pending_dag("doc-done", Instant::now())));
 
-    let claimed = manager.claim_due_pending_dag_retries(tokio::time::Instant::now());
+    let claimed = manager.claim_due_pending_dag_retries(n0_future::time::Instant::now());
     assert_eq!(claimed.len(), 2);
     assert!(claimed.iter().any(|(cid, _)| *cid == due));
     assert!(claimed.iter().any(|(cid, _)| *cid == complete));
     // Claiming consumed due-ness.
     assert!(manager
-        .claim_due_pending_dag_retries(tokio::time::Instant::now())
+        .claim_due_pending_dag_retries(n0_future::time::Instant::now())
         .is_empty());
 }
 
@@ -1175,10 +1183,10 @@ async fn resync_restore_leaves_root_due_for_receiver_clock() {
         events.try_recv().is_err(),
         "restart restore must not dispatch outside the receiver clock"
     );
-    let claimed = manager.claim_due_pending_dag_retries(tokio::time::Instant::now());
+    let claimed = manager.claim_due_pending_dag_retries(n0_future::time::Instant::now());
     assert_eq!(claimed.len(), 1);
     assert_eq!(claimed[0].0, root);
     assert!(manager
-        .claim_due_pending_dag_retries(tokio::time::Instant::now())
+        .claim_due_pending_dag_retries(n0_future::time::Instant::now())
         .is_empty());
 }

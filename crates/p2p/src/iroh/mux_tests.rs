@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use iroh::SecretKey;
+use n0_future::task::JoinHandle;
 use parking_lot::Mutex;
-use tokio::task::JoinHandle;
 
 use super::protocols;
 use super::{spawn_endpoint, IrohDiscoveryConfig, IrohEndpointConfig, IrohTransport};
@@ -74,7 +74,7 @@ async fn spawn_bare_peer() -> BarePeer {
         .expect("listener direct address");
 
     let observed = Arc::new(Mutex::new(Observed::default()));
-    let accept_task = tokio::spawn({
+    let accept_task = n0_future::task::spawn({
         let endpoint = endpoint.clone();
         let observed = Arc::clone(&observed);
         async move {
@@ -86,7 +86,7 @@ async fn spawn_bare_peer() -> BarePeer {
                 };
                 observed.lock().connections += 1;
                 let observed = Arc::clone(&observed);
-                tokio::spawn(async move {
+                n0_future::task::spawn(async move {
                     while let Ok((mut send, mut recv)) = connection.accept_bi().await {
                         match protocols::read_stream_tag(&mut recv).await {
                             Ok(tag) => observed.lock().tags.push(tag),
@@ -250,7 +250,7 @@ async fn a_failed_stream_does_not_tear_down_the_connection() {
 
     // A CAR *request* expects bytes back; the bare peer never sends any, so this
     // stream fails on read. The connection itself stays healthy.
-    let _ = tokio::time::timeout(
+    let _ = n0_future::time::timeout(
         Duration::from_secs(2),
         transport.send_car_request(&peer.peer_id, cid_for_test()),
     )

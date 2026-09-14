@@ -17,8 +17,8 @@
 //! recoverable by re-issuing the pull.
 
 use async_trait::async_trait;
-use defra_core::thread_bounds::MaybeSendSync;
 use cid::Cid;
+use defra_core::thread_bounds::MaybeSendSync;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};

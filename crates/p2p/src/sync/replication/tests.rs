@@ -269,7 +269,7 @@ impl PollFetchTransport {
 
     fn signal_sync_complete(&self, query_id: QueryId) {
         let completion = self.sync_completion.lock().clone();
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             // The real transport emits completion after `sync_blocks` returns
             // and the poll owner registers its waiter.
             tokio::task::yield_now().await;
@@ -910,7 +910,7 @@ impl MergeHandler for SlowMergeHandler {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         let current = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         self.record_in_flight(current);
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        n0_future::time::sleep(Duration::from_millis(50)).await;
         self.in_flight.fetch_sub(1, Ordering::SeqCst);
         Ok(MergeOutcome::Merged)
     }
@@ -1600,7 +1600,7 @@ async fn dag_ready_merge_failure_retains_receiver_obligation() {
     assert!(
         coordinator
             .manager()
-            .claim_due_pending_dag_retries(tokio::time::Instant::now())
+            .claim_due_pending_dag_retries(n0_future::time::Instant::now())
             .iter()
             .any(|(due_cid, _)| *due_cid == cid),
         "the receiver clock must own merge re-drive after a transient failure"
@@ -1921,11 +1921,11 @@ async fn test_pushlog_dag_needs_fetch_uses_poll_fetcher_when_sender_known() {
         .unwrap();
 
     assert_eq!(
-        coordinator.dispatch_due_pending_dag_fetches_for_test(tokio::time::Instant::now()),
+        coordinator.dispatch_due_pending_dag_fetches_for_test(n0_future::time::Instant::now()),
         1
     );
 
-    let dag_needs_fetch = tokio::time::timeout(Duration::from_secs(1), events.recv())
+    let dag_needs_fetch = n0_future::time::timeout(Duration::from_secs(1), events.recv())
         .await
         .expect("DagNeedsFetch should arrive")
         .expect("event should be present");
@@ -1945,7 +1945,7 @@ async fn test_pushlog_dag_needs_fetch_uses_poll_fetcher_when_sender_known() {
         ReplicationResult::DagFetchStarted { root_cid: cid } if cid == root_cid
     ));
 
-    let event = tokio::time::timeout(Duration::from_secs(1), events.recv())
+    let event = n0_future::time::timeout(Duration::from_secs(1), events.recv())
         .await
         .expect("DagReady should arrive")
         .expect("event should be present");
@@ -2137,7 +2137,7 @@ async fn run_receiver_ownership_arm(expand_dag: bool) -> ReceiverOwnershipArm {
             .await
             .unwrap();
         assert!(
-            tokio::time::timeout(Duration::from_millis(25), events.recv())
+            n0_future::time::timeout(Duration::from_millis(25), events.recv())
                 .await
                 .is_err(),
             "legacy field dependency must not become a pending head"
@@ -2149,10 +2149,10 @@ async fn run_receiver_ownership_arm(expand_dag: bool) -> ReceiverOwnershipArm {
             .await
             .unwrap();
         assert_eq!(
-            coordinator.dispatch_due_pending_dag_fetches_for_test(tokio::time::Instant::now()),
+            coordinator.dispatch_due_pending_dag_fetches_for_test(n0_future::time::Instant::now()),
             1
         );
-        tokio::time::timeout(Duration::from_secs(1), events.recv())
+        n0_future::time::timeout(Duration::from_secs(1), events.recv())
             .await
             .expect("composite pending event should arrive")
             .expect("composite pending event should be present")
@@ -2164,10 +2164,10 @@ async fn run_receiver_ownership_arm(expand_dag: bool) -> ReceiverOwnershipArm {
             .await
             .unwrap();
         assert_eq!(
-            coordinator.dispatch_due_pending_dag_fetches_for_test(tokio::time::Instant::now()),
+            coordinator.dispatch_due_pending_dag_fetches_for_test(n0_future::time::Instant::now()),
             1
         );
-        tokio::time::timeout(Duration::from_secs(1), events.recv())
+        n0_future::time::timeout(Duration::from_secs(1), events.recv())
             .await
             .expect("root pending event should arrive")
             .expect("root pending event should be present")
@@ -2198,7 +2198,7 @@ async fn run_receiver_ownership_arm(expand_dag: bool) -> ReceiverOwnershipArm {
     )
     .await;
     assert!(matches!(started, ReplicationResult::DagFetchStarted { .. }));
-    let ready = tokio::time::timeout(Duration::from_secs(1), events.recv())
+    let ready = n0_future::time::timeout(Duration::from_secs(1), events.recv())
         .await
         .expect("CAR completion should emit DagReady")
         .expect("DagReady should be present");
@@ -2221,8 +2221,9 @@ async fn run_receiver_ownership_arm(expand_dag: bool) -> ReceiverOwnershipArm {
             .handle_transport_event(request("", root_cid, root_data.clone()))
             .await
             .expect("sender retry should re-offer the nacked logical head");
-        let _ = coordinator.dispatch_due_pending_dag_fetches_for_test(tokio::time::Instant::now());
-        let retry_pending = tokio::time::timeout(Duration::from_secs(1), events.recv())
+        let _ =
+            coordinator.dispatch_due_pending_dag_fetches_for_test(n0_future::time::Instant::now());
+        let retry_pending = n0_future::time::timeout(Duration::from_secs(1), events.recv())
             .await
             .expect("retried root pending event should arrive")
             .expect("retried root pending event should be present");
@@ -2239,7 +2240,7 @@ async fn run_receiver_ownership_arm(expand_dag: bool) -> ReceiverOwnershipArm {
             // without another CAR owner.
             ReplicationResult::Merged { .. } => {}
             ReplicationResult::DagFetchStarted { .. } => {
-                let retry_ready = tokio::time::timeout(Duration::from_secs(1), events.recv())
+                let retry_ready = n0_future::time::timeout(Duration::from_secs(1), events.recv())
                     .await
                     .expect("retried CAR completion should emit DagReady")
                     .expect("retried DagReady should be present");
@@ -2466,7 +2467,7 @@ async fn test_run_serializes_duplicate_cids() {
     let mut results = Vec::new();
     for _ in 0..2 {
         results.push(
-            tokio::time::timeout(Duration::from_secs(1), result_rx.recv())
+            n0_future::time::timeout(Duration::from_secs(1), result_rx.recv())
                 .await
                 .expect("result should arrive")
                 .expect("result channel should remain open"),
@@ -2686,7 +2687,7 @@ async fn merged_head_forwards_to_configured_replicator_without_gossip_rebroadcas
         .unwrap();
     let (failure_tx, mut failure_rx) = tokio::sync::mpsc::channel(8);
     coordinator.set_failure_channel(failure_tx);
-    tokio::spawn(async move {
+    n0_future::task::spawn(async move {
         while let Some(mut event) = failure_rx.recv().await {
             if let Some(durable_tx) = event.durable_tx.take() {
                 let _ = durable_tx.send(true);
@@ -2715,7 +2716,7 @@ async fn merged_head_forwards_to_configured_replicator_without_gossip_rebroadcas
         results.as_slice(),
         [ReplicationResult::Merged { cid: merged_cid, .. }] if *merged_cid == cid
     ));
-    tokio::time::timeout(Duration::from_secs(1), async {
+    n0_future::time::timeout(Duration::from_secs(1), async {
         while transport_handle.pushlog_requests().is_empty() {
             tokio::task::yield_now().await;
         }

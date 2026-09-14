@@ -33,7 +33,7 @@
 //!     let (host, handle, mut events) = P2PHost::new(bitswap_store)?;
 //!
 //!     // Spawn the host event loop
-//!     tokio::spawn(host.run());
+//!     n0_future::task::spawn(host.run());
 //!
 //!     // Start listening
 //!     handle.listen("/ip4/0.0.0.0/tcp/9000".parse().unwrap()).await?;

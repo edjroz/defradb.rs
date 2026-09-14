@@ -24,7 +24,8 @@
 //! is dropped until the next discovery/dial recreates it through the 0→1 path.
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use iroh::endpoint::Connection;
 use iroh::EndpointId;
@@ -411,7 +412,7 @@ async fn dial_and_inject(
     if let Some(previous) = res.healer.store_conn(endpoint_id, conn) {
         let grace = res.healer.config().superseded_close_grace;
         let _ = spawn_task(&res.spawned_tasks, async move {
-            tokio::time::sleep(grace).await;
+            n0_future::time::sleep(grace).await;
             previous.close(0u32.into(), b"gossip-refresh");
         });
     }
