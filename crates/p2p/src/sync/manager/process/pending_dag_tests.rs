@@ -1236,21 +1236,24 @@ async fn at_global_cap_a_head_covered_by_the_current_scope_head_is_acked() {
     );
 }
 
+/// A descendant no registered root waits on carries no receiver obligation, so
+/// the cap holds: otherwise a peer could push unlimited unrelated non-head
+/// blocks into storage while the registry is full.
 #[tokio::test]
-async fn at_global_cap_a_descendant_is_stored_not_shed() {
+async fn at_global_cap_an_unawaited_descendant_is_shed() {
     let manager = manager_at_global_cap();
     let (leaf_cid, leaf_bytes) = lww_leaf("name");
 
-    manager
+    let result = manager
         .process_pushlog(
             &broadcast("doc789", leaf_cid, leaf_bytes),
             Some("peer-2"),
             false,
             None,
         )
-        .await
-        .expect("a descendant consumes no slot and must not be shed");
-    assert!(manager
+        .await;
+    assert!(matches!(result, Err(Error::PendingDagCapacity { max: 1 })));
+    assert!(!manager
         .blockstore
         .has(&leaf_cid)
         .await
@@ -1258,7 +1261,36 @@ async fn at_global_cap_a_descendant_is_stored_not_shed() {
     assert_eq!(manager.pending_dag_count(), 1);
     assert_eq!(
         manager.diagnostics().snapshot().pending_dag_capacity_shed,
-        0
+        1
+    );
+}
+
+/// Malformed DAG-CBOR decodes as a descendant, so a CID-valid block of garbage
+/// would clear block verification. Only the cap keeps it out of storage.
+#[tokio::test]
+async fn at_global_cap_a_cid_valid_malformed_block_is_shed() {
+    let manager = manager_at_global_cap();
+    let garbage = vec![0xff; 4 * 1024 * 1024];
+    let garbage_cid =
+        defra_core::block::generate_cid_from_bytes(&garbage).expect("generate garbage cid");
+
+    let result = manager
+        .process_pushlog(
+            &broadcast("doc789", garbage_cid, garbage),
+            Some("peer-2"),
+            false,
+            None,
+        )
+        .await;
+    assert!(matches!(result, Err(Error::PendingDagCapacity { max: 1 })));
+    assert!(!manager
+        .blockstore
+        .has(&garbage_cid)
+        .await
+        .expect("blockstore lookup"));
+    assert_eq!(
+        manager.diagnostics().snapshot().pending_dag_capacity_shed,
+        1
     );
 }
 

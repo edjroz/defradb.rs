@@ -1469,12 +1469,16 @@ mod tests {
             .expect("fill pending DAG registry");
         assert!(events.try_recv().is_err());
 
-        let (rejected_field_cid, _) = create_lww_block("rejected");
-        let (rejected_cid, rejected_block) =
-            create_composite_block("doc456", "rejected", rejected_field_cid);
+        let (rejected_cid, _rejected_block) = create_lww_block("rejected");
+        let allocation_heavy_garbage = vec![0xff; 4 * 1024 * 1024];
         let result = manager
             .process_pushlog(
-                &make_broadcast("doc456", rejected_cid, rejected_block, "collection1"),
+                &make_broadcast(
+                    "doc456",
+                    rejected_cid,
+                    allocation_heavy_garbage,
+                    "collection1",
+                ),
                 Some("peer-2"),
                 false,
                 None,
