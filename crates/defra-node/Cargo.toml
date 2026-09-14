@@ -52,7 +52,6 @@ bench = false
 
 [dependencies]
 db = { path = "../db", default-features = false }
-replication-filter = { path = "../replication-filter" }
 storage = { path = "../storage" }
 query = { path = "../query" }
 events = { path = "../events" }
