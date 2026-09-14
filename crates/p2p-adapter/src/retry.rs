@@ -146,8 +146,99 @@ async fn redial_replicator<S, T>(
         .filter(|(addressed_peer, _)| addressed_peer == peer_id)
         .flat_map(|(_, addrs)| addrs)
         .collect();
-    if let Err(error) = transport.dial(peer_id, addrs).await {
-        tracing::debug!(%peer_id, %error, "replicator retry redial failed");
+    match n0_future::time::timeout(RECONNECT_DIAL_TIMEOUT, transport.dial(peer_id, addrs)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::debug!(%peer_id, %error, "replicator retry redial failed"),
+        Err(_) => tracing::debug!(%peer_id, "replicator retry redial timed out"),
+    }
+}
+
+/// Ceiling on a single reconnect dial. Without it one unresponsive address
+/// stalls every peer queued behind it on the same pass.
+const RECONNECT_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+/// First delay after a failed probe, doubling up to `RECONNECT_BACKOFF_MAX`.
+const RECONNECT_BACKOFF_MIN: std::time::Duration = p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL;
+/// Ceiling on the per-peer probe backoff.
+const RECONNECT_BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(60);
+/// Dials one pass may start. A fleet-wide outage costs a bounded amount of
+/// work per sweep rather than one dial per replicator.
+const RECONNECT_DIALS_PER_PASS: usize = 8;
+
+/// When a disconnected peer may next be probed, and how far its backoff has
+/// walked. Held by the reconnect loop only; nothing here is durable.
+struct ReconnectProbe {
+    next_attempt: n0_future::time::Instant,
+    backoff: std::time::Duration,
+}
+
+impl ReconnectProbe {
+    fn new(now: n0_future::time::Instant) -> Self {
+        Self {
+            next_attempt: now,
+            backoff: RECONNECT_BACKOFF_MIN,
+        }
+    }
+
+    /// Charge the backoff *before* dialling, so a dial that hangs to its
+    /// timeout still defers the next probe instead of retrying immediately.
+    fn charge(&mut self, now: n0_future::time::Instant) {
+        self.next_attempt = now + self.backoff;
+        self.backoff = (self.backoff * 2).min(RECONNECT_BACKOFF_MAX);
+    }
+}
+
+/// Probe replicator peers that are not connected, on a schedule of its own.
+///
+/// This exists because a node returning from a partition otherwise waits out
+/// whatever rung the last push timeout charged on the durable replay ladder
+/// before anything redials it, which measured 21.5s p50 on a 60s outage. The
+/// probe never writes the retry schedule: a successful dial raises
+/// `PeerConnected`, and that event remains the signal that activates the
+/// durable markers (`activate_retry_peer`).
+async fn run_reconnect_pass<S, T>(
+    peerstore: &storage::stores::Peerstore<S>,
+    transport: &T,
+    probes: &mut std::collections::HashMap<String, ReconnectProbe>,
+) where
+    S: storage::corekv::Store,
+    T: P2PTransport,
+{
+    let Ok(peers) = peerstore.get_replicator_retry_peers().await else {
+        return;
+    };
+    let connected = match transport.connected_peers().await {
+        Ok(connected) => connected,
+        // No observation means no evidence, and a redial storm across the whole
+        // replicator set is the worst thing to do on a transport hiccup.
+        Err(error) => {
+            tracing::debug!(%error, "peer observation failed; skipping reconnect probes");
+            return;
+        }
+    };
+    let scheduled: std::collections::HashSet<&str> =
+        peers.iter().map(|(peer_id, _)| peer_id.as_str()).collect();
+    probes.retain(|peer_id, _| scheduled.contains(peer_id.as_str()));
+
+    let now = n0_future::time::Instant::now();
+    let mut dialled = 0usize;
+    for (peer_id_str, _) in peers {
+        let peer_id = PeerId::new(peer_id_str.clone());
+        if connected.contains(&peer_id) {
+            probes.remove(&peer_id_str);
+            continue;
+        }
+        let probe = probes
+            .entry(peer_id_str)
+            .or_insert_with(|| ReconnectProbe::new(now));
+        if now < probe.next_attempt {
+            continue;
+        }
+        if dialled >= RECONNECT_DIALS_PER_PASS {
+            break;
+        }
+        probe.charge(now);
+        dialled += 1;
+        redial_replicator(peerstore, transport, &peer_id).await;
     }
 }
 
@@ -308,17 +399,30 @@ where
         if let Err(error) = peerstore.migrate_legacy_push_retries().await {
             tracing::warn!(%error, "failed to migrate legacy push retries after restart");
         }
-        loop {
-            n0_future::time::sleep(p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL).await;
-            run_retry_pass(
-                &peerstore,
-                &transport,
-                &doc_pusher,
-                se_repusher.as_ref(),
-                false,
-            )
-            .await;
-        }
+        let replay = async {
+            loop {
+                n0_future::time::sleep(p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL).await;
+                run_retry_pass(
+                    &peerstore,
+                    &transport,
+                    &doc_pusher,
+                    se_repusher.as_ref(),
+                    false,
+                )
+                .await;
+            }
+        };
+        // Concurrent with the replay sweep rather than sequenced before it: a
+        // dial that runs to `RECONNECT_DIAL_TIMEOUT` must not hold up a replay
+        // that is already due.
+        let reconnect = async {
+            let mut probes = std::collections::HashMap::new();
+            loop {
+                n0_future::time::sleep(p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL).await;
+                run_reconnect_pass(&peerstore, &transport, &mut probes).await;
+            }
+        };
+        tokio::join!(replay, reconnect);
     })
 }
 
