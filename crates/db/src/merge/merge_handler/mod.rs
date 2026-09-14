@@ -6,6 +6,7 @@
 mod authorization;
 mod batch;
 mod collection;
+mod collection_commit;
 pub mod composite;
 mod composite_fields;
 mod composite_heads;
@@ -111,6 +112,14 @@ pub struct DbMergeHandler<S: Store, B: blockstore::Blockstore> {
     /// (pushlog + gossip + retries) don't fan out duplicate cross-peer
     /// fetches.
     prefetched_dek_cids: Arc<std::sync::Mutex<HashSet<Cid>>>,
+    /// Branchable collection commits this handler authored, by the composite
+    /// root each one covers, for the ingress that asked for them.
+    ///
+    /// An ingress needs the commit to announce it to peers, and it is written
+    /// inside the merge transaction, so it cannot be handed back through the
+    /// return value of a merge that has not committed yet. Keyed by root, so
+    /// concurrent pushes cannot read each other's.
+    authored_collection_commits: std::sync::Mutex<HashMap<Cid, (Cid, bytes::Bytes)>>,
 }
 
 impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
@@ -127,6 +136,24 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
     /// Collection-definition blocks already merged in this process.
     pub fn merged_collections(&self) -> &std::sync::Mutex<HashSet<Cid>> {
         &self.merged_collections
+    }
+
+    /// Take the collection commit authored for `root`, if this handler wrote
+    /// one.
+    pub(crate) fn take_authored_collection_commit(
+        &self,
+        root: &Cid,
+    ) -> Option<(Cid, bytes::Bytes)> {
+        self.authored_collection_commits
+            .lock()
+            .ok()
+            .and_then(|mut authored| authored.remove(root))
+    }
+
+    pub(crate) fn record_authored_collection_commit(&self, root: Cid, commit: (Cid, bytes::Bytes)) {
+        if let Ok(mut authored) = self.authored_collection_commits.lock() {
+            authored.insert(root, commit);
+        }
     }
 
     /// DEK block CIDs whose prefetch has already been spawned.
@@ -157,6 +184,7 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
             kms: std::sync::OnceLock::new(),
             merge_queue,
             prefetched_dek_cids: Arc::new(std::sync::Mutex::new(HashSet::new())),
+            authored_collection_commits: std::sync::Mutex::new(HashMap::new()),
         }
     }
 

@@ -13,7 +13,6 @@ use crate::event::emission::{TxnBroadcastEvent, TxnBroadcaster};
 use crate::merge::merge_handler::DbMergeHandler;
 use crate::merge::push_docs_common::{load_latest_composite_head_cids, load_push_dag_blocks};
 
-mod collection_commit;
 mod validation;
 
 #[derive(Debug, thiserror::Error)]
@@ -472,13 +471,19 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
                 .handle_block(
                     root,
                     data,
+                    // `/sync` is where the document entered the network, so
+                    // no peer will ever send the collection commit that puts
+                    // it in a branchable collection's DAG. The merge writes it
+                    // in the transaction that lands the document, so the two
+                    // cannot come apart.
                     BlockMetadata::normal(
                         &document.doc_id,
                         &document.collection_id,
                         creator,
                         None,
                         false,
-                    ),
+                    )
+                    .authoring_collection_commit(),
                 )
                 .await
                 .map_err(|error| BrowserSyncError::Merge(error.to_string()))?
@@ -508,15 +513,12 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
             .await
             .map_err(|error| BrowserSyncError::Storage(error.to_string()))?;
 
-        let collection_commits = collection_commit::write_collection_commits(
-            &self.db,
-            &document.doc_id,
-            &document.collection_id,
-            &merged_roots,
-        )
-        .await?;
+        let collection_commits: Vec<_> = merged_roots
+            .iter()
+            .map(|root| self.merge_handler.take_authored_collection_commit(root))
+            .collect();
 
-        self.announce_merged_document(&document, &merged_roots, collection_commits)
+        self.announce_merged_document(&document, &merged_roots, &collection_commits)
             .await;
         Ok(())
     }
@@ -537,7 +539,7 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
         &self,
         document: &ValidatedBrowserSyncDocument,
         merged_roots: &[Cid],
-        collection_commits: Vec<(Cid, Bytes)>,
+        collection_commits: &[Option<(Cid, Bytes)>],
     ) {
         let Some(broadcaster) = self.broadcaster.as_ref() else {
             return;
@@ -580,7 +582,7 @@ impl<S: Store + 'static> BrowserSyncEngine<S> {
                     collection_block: merged_roots
                         .iter()
                         .position(|merged| merged == root)
-                        .and_then(|index| collection_commits.get(index).cloned()),
+                        .and_then(|index| collection_commits[index].clone()),
                     creator_did: document.verified_genesis_creator.clone(),
                 })
                 .await;

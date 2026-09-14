@@ -535,7 +535,43 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
                         error
                     ))
                 })?;
+
+                // An ingress is the document's first holder, so no peer will
+                // ever send the collection commit that puts it in a branchable
+                // collection's DAG. Writing it in this transaction is what
+                // makes the document and its place in the collection land
+                // together: a failure here discards the merge, and the resend
+                // that follows is a merge again rather than a no-op.
+                let commit_views = txn
+                    .blockstore()
+                    .and_then(|blockstore| Ok((blockstore, txn.headstore()?)));
+                let collection_commit = match commit_views {
+                    Ok((blockstore, headstore)) => {
+                        match self
+                            .author_collection_commit(&blockstore, &headstore, &context, &state)
+                            .await
+                        {
+                            Ok(commit) => commit,
+                            Err(error) => {
+                                let _ = txn.force_discard();
+                                return Err(error);
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        let _ = txn.force_discard();
+                        return Err(MergeError::Database(error));
+                    }
+                };
+
                 txn.force_commit().await?;
+
+                if let Some((collection_short_id, commit)) = collection_commit {
+                    self.record_authored_collection_commit(*cid, commit);
+                    self.db
+                        .maybe_prune_collection_heads(collection_short_id)
+                        .await;
+                }
 
                 self.best_effort_finalize_linked_field_blocks(&state.linked_field_cids)
                     .await;

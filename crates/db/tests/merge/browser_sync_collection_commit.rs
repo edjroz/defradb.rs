@@ -206,3 +206,114 @@ async fn the_collection_commit_is_announced_with_the_document() {
         .expect("a peer replicating the collection needs its commit, not just the document");
     assert_eq!(vec![*announced], collection_heads(&central).await);
 }
+
+/// A block that arrived by replication must not author a commit: the
+/// collection commit travels with the document from the node the write
+/// entered, and authoring a second one here would fork the collection DAG on
+/// every peer that merged it.
+#[tokio::test]
+async fn a_replicated_merge_authors_no_collection_commit() {
+    use blockstore::{Blockstore as _, DefraBlockstore};
+    use db::merge::merge_handler::DbMergeHandler;
+    use defra_core::merge::{BlockMetadata, MergeHandler, MergeOutcome};
+
+    let browser = branchable_node().await;
+    let central = branchable_node().await;
+    let created = AutoCommitMutator::new(browser.clone())
+        .create(COLLECTION, command("sensor-7", 1))
+        .await
+        .unwrap();
+    let pushed = authored_elsewhere(&browser, &created.doc_id.to_string()).await;
+
+    // The same blocks the replication path merges, with the metadata that path
+    // supplies: no ingress claim on it.
+    let blockstore = Arc::new(DefraBlockstore::new(central.store().clone(), true));
+    let handler = DbMergeHandler::new(central.clone(), blockstore.clone());
+    for block in &pushed.blocks {
+        blockstore
+            .put(
+                &Cid::try_from(block.cid.as_str()).unwrap(),
+                &hex::decode(&block.data).unwrap(),
+            )
+            .await
+            .unwrap();
+    }
+    let root = Cid::try_from(pushed.roots[0].as_str()).unwrap();
+    let root_data = hex::decode(
+        &pushed
+            .blocks
+            .iter()
+            .find(|block| block.cid == pushed.roots[0])
+            .unwrap()
+            .data,
+    )
+    .unwrap();
+    let outcome = handler
+        .handle_block(
+            &root,
+            &root_data,
+            BlockMetadata::normal(
+                &pushed.doc_id,
+                &pushed.collection_id,
+                "a-peer",
+                Some("a-peer"),
+                false,
+            ),
+        )
+        .await
+        .unwrap();
+
+    assert!(matches!(outcome, MergeOutcome::Merged));
+    assert!(
+        collection_heads(&central).await.is_empty(),
+        "only the node a write entered authors the collection commit"
+    );
+}
+
+/// A collection that keeps no DAG of its own gets no commit, and the
+/// announcement says so rather than carrying an empty one.
+#[tokio::test]
+async fn a_push_into_a_non_branchable_collection_writes_no_commit() {
+    let plain = CollectionVersion::new(
+        "PlainConfig",
+        "plain-v1",
+        "col-plain-config",
+        vec![
+            FieldDescription::new("1", "_docID", FieldKind::doc_id()),
+            FieldDescription::new("2", "device", FieldKind::string()),
+            FieldDescription::new("3", "seq", FieldKind::int()),
+        ],
+    );
+    let browser = Arc::new(DB::new(RegolithStore::in_memory().unwrap()).unwrap());
+    let central = Arc::new(DB::new(RegolithStore::in_memory().unwrap()).unwrap());
+    for db in [&browser, &central] {
+        db.create_collection(plain.clone()).await.unwrap();
+    }
+
+    let created = AutoCommitMutator::new(browser.clone())
+        .create("PlainConfig", command("sensor-7", 1))
+        .await
+        .unwrap();
+    let sync = BrowserSyncEngine::new(browser.clone());
+    let document_ref = sync
+        .document_ref(&created.doc_id.to_string())
+        .await
+        .unwrap()
+        .unwrap();
+    let pushed = sync.load_document(&document_ref).await.unwrap().unwrap();
+
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    BrowserSyncEngine::with_broadcaster(
+        central.clone(),
+        Arc::new(CapturingBroadcaster {
+            events: events.clone(),
+        }),
+    )
+    .apply_document(&pushed, "browser")
+    .await
+    .unwrap();
+
+    let events: Vec<_> = events.lock().unwrap().drain(..).collect();
+    assert_eq!(events.len(), 1);
+    assert!(events[0].collection_block.is_none());
+}

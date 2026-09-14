@@ -200,6 +200,15 @@ pub struct BlockMetadata<'a> {
     /// Schema blocks are governed by node-level access control (NAC) rather than
     /// document-level ACP. Doc-level permission checks must be skipped for schema blocks.
     pub is_schema_block: bool,
+    /// Whether the merging node authors the branchable collection's commit for
+    /// this block, in the merge's own transaction.
+    ///
+    /// Set only where this node is the first to hold the document, so no peer
+    /// will ever send that commit: an ingress such as `/sync`. A block that
+    /// arrived by replication leaves it false, because the commit travels with
+    /// the document. Honoured on the standalone composite merge path, which is
+    /// the one an ingress takes.
+    pub authors_collection_commit: bool,
 }
 
 impl<'a> BlockMetadata<'a> {
@@ -221,6 +230,7 @@ impl<'a> BlockMetadata<'a> {
             verified_creator: None,
             is_recovery: false,
             is_schema_block: false,
+            authors_collection_commit: false,
         }
     }
 
@@ -240,6 +250,7 @@ impl<'a> BlockMetadata<'a> {
             verified_creator: None,
             is_recovery: false,
             is_schema_block: true,
+            authors_collection_commit: false,
         }
     }
 
@@ -259,6 +270,7 @@ impl<'a> BlockMetadata<'a> {
             verified_creator: None,
             is_recovery: true,
             is_schema_block: false,
+            authors_collection_commit: false,
         }
     }
 
@@ -282,7 +294,15 @@ impl<'a> BlockMetadata<'a> {
             verified_creator,
             is_recovery: true,
             is_schema_block: false,
+            authors_collection_commit: false,
         }
+    }
+
+    /// Author the branchable collection's commit inside this merge's
+    /// transaction, for an ingress that is the document's first holder.
+    pub fn authoring_collection_commit(mut self) -> Self {
+        self.authors_collection_commit = true;
+        self
     }
 
     pub fn with_explicit_replay_authorization(
