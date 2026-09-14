@@ -59,13 +59,20 @@ async fn gql(http: &reqwest::Client, url: &str, query: &str) -> Result<Value, St
 
 async fn doc_count(http: &reqwest::Client, url: &str) -> u64 {
     match gql(http, url, "query { DrainDoc { _docID } }").await {
-        Ok(data) => data["DrainDoc"].as_array().map(|a| a.len() as u64).unwrap_or(0),
+        Ok(data) => data["DrainDoc"]
+            .as_array()
+            .map(|a| a.len() as u64)
+            .unwrap_or(0),
         Err(_) => u64::MAX,
     }
 }
 
 async fn sync_status(http: &reqwest::Client, url: &str) -> Value {
-    match http.get(format!("{url}/api/v0/p2p/sync/status")).send().await {
+    match http
+        .get(format!("{url}/api/v0/p2p/sync/status"))
+        .send()
+        .await
+    {
         Ok(response) => response.json().await.unwrap_or(Value::Null),
         Err(_) => Value::Null,
     }
@@ -95,7 +102,10 @@ async fn overload_burst_drains_to_zero_missing() {
 
     let sender = cluster.client(0);
     for receiver in 1..3 {
-        let info = cluster.client(receiver).p2p_info().expect("receiver p2p info");
+        let info = cluster
+            .client(receiver)
+            .p2p_info()
+            .expect("receiver p2p info");
         let addr = info[0].as_str().expect("receiver address").to_string();
         sender.p2p_connect(&[&addr]).expect("connect");
         sender
@@ -104,7 +114,10 @@ async fn overload_burst_drains_to_zero_missing() {
     }
 
     let sender_url = cluster.api_url(0).to_string();
-    let receiver_urls = [cluster.api_url(1).to_string(), cluster.api_url(2).to_string()];
+    let receiver_urls = [
+        cluster.api_url(1).to_string(),
+        cluster.api_url(2).to_string(),
+    ];
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()
@@ -176,7 +189,8 @@ async fn overload_burst_drains_to_zero_missing() {
             .as_u64()
             .map(|deadline| deadline as i64 - now as i64)
             .unwrap_or(-1);
-        last_missing = (sender_docs as i64 - rx1_docs as i64) + (sender_docs as i64 - rx2_docs as i64);
+        last_missing =
+            (sender_docs as i64 - rx1_docs as i64) + (sender_docs as i64 - rx2_docs as i64);
         println!(
             "{:.0},{sender_docs},{rx1_docs},{rx2_docs},{last_missing},{},{},{},{},{},{next_retry_in}",
             settle_start.elapsed().as_secs_f64(),
