@@ -18,8 +18,6 @@ use crate::{
 use anyhow::{anyhow, Context, Result};
 #[cfg(any(feature = "libp2p", feature = "iroh"))]
 use p2p::sync::SyncConfig;
-#[cfg(feature = "iroh")]
-use p2p::P2PTransport;
 use tokio::sync::Notify;
 
 pub(crate) type EmbeddedBlockstore<S> = blockstore::DefraBlockstore<S>;
@@ -407,11 +405,7 @@ enum ShutdownKind {
         tasks: std::sync::Mutex<Option<Vec<tokio::task::JoinHandle<()>>>>,
     },
     #[cfg(feature = "iroh")]
-    Iroh {
-        transport: p2p::iroh::IrohTransport,
-        coordinator: p2p::sync::SyncShutdownHandle,
-        tasks: std::sync::Mutex<Option<Vec<tokio::task::JoinHandle<()>>>>,
-    },
+    Iroh(defra_p2p_adapter::IrohPeerShutdown),
 }
 
 impl ShutdownHandle {
@@ -431,17 +425,9 @@ impl ShutdownHandle {
     }
 
     #[cfg(feature = "iroh")]
-    pub(crate) fn iroh(
-        transport: p2p::iroh::IrohTransport,
-        coordinator: p2p::sync::SyncShutdownHandle,
-        tasks: Vec<tokio::task::JoinHandle<()>>,
-    ) -> Self {
+    pub(crate) fn iroh(peer: defra_p2p_adapter::IrohPeerShutdown) -> Self {
         Self {
-            inner: ShutdownKind::Iroh {
-                transport,
-                coordinator,
-                tasks: std::sync::Mutex::new(Some(tasks)),
-            },
+            inner: ShutdownKind::Iroh(peer),
         }
     }
 
@@ -459,22 +445,14 @@ impl ShutdownHandle {
                 let _ = handle.shutdown().await;
             }
             #[cfg(feature = "iroh")]
-            ShutdownKind::Iroh {
-                transport,
-                coordinator,
-                tasks,
-            } => {
-                coordinator.shutdown().await;
-                let _ = transport.shutdown().await;
-                abort_and_join(tasks).await;
-            }
+            ShutdownKind::Iroh(peer) => peer.shutdown().await,
         }
 
         defra_core::signing::clear_identity_store();
     }
 }
 
-#[cfg(any(feature = "libp2p", feature = "iroh"))]
+#[cfg(feature = "libp2p")]
 async fn abort_and_join(tasks: &std::sync::Mutex<Option<Vec<tokio::task::JoinHandle<()>>>>) {
     let tasks = tasks
         .lock()
@@ -583,6 +561,9 @@ where
     database.set_nac_manager(nac_manager.clone());
 
     if let Some(ref mut setup) = p2p_setup {
+        if let Some(wire_document_acp) = setup.wire_document_acp.take() {
+            wire_document_acp(document_acp.clone());
+        }
         setup.merge_handler.set_document_acp(document_acp.clone());
         #[cfg(feature = "sourcehub")]
         setup
@@ -590,9 +571,6 @@ where
             .set_strict_replicated_doc_access(sourcehub_acp.is_some());
         #[cfg(not(feature = "sourcehub"))]
         setup.merge_handler.set_strict_replicated_doc_access(false);
-        if let Some(wire_document_acp) = setup.wire_document_acp.take() {
-            wire_document_acp(document_acp.clone());
-        }
         // Populate the manage-channel serve deps now that the controller and
         // NAC manager exist; until this fires the event loop drops inbound
         // manage requests rather than serving them unauthenticated.

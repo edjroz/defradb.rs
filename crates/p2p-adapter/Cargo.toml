@@ -25,6 +25,8 @@ events = { path = "../events" }
 identity = { path = "../identity" }
 lens = { path = "../lens", default-features = false }
 p2p = { path = "../p2p", default-features = false }
+kms = { path = "../kms", optional = true }
+query = { path = "../query" }
 replication-filter = { path = "../replication-filter" }
 schema = { path = "../schema" }
 storage = { path = "../storage" }
@@ -56,6 +58,9 @@ default = ["native", "wasmtime-runtime", "iroh", "libp2p"]
 native = ["db/native", ]
 wasmtime-runtime = ["db/wasmtime-runtime", "lens/wasmtime-runtime"]
 iroh = ["p2p/iroh-transport"]
+# Encryption key distribution over the iroh peer's gossip, and the pubsub_rpc
+# services that come with it.
+kms = ["dep:kms", "p2p/kms"]
 libp2p = ["dep:libp2p", "p2p/libp2p-transport", "db/p2p"]
 
 [lints]

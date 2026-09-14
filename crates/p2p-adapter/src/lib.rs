@@ -10,13 +10,14 @@ mod doc_sync;
 #[cfg(feature = "iroh")]
 mod iroh;
 #[cfg(feature = "iroh")]
-mod iroh_event_handler;
+mod iroh_peer;
 #[cfg(feature = "iroh")]
 mod iroh_restore;
 #[cfg(feature = "libp2p")]
 mod libp2p;
 pub mod manage;
 mod read_gate;
+mod replication_events;
 mod replicator_status;
 #[cfg(any(feature = "iroh", feature = "libp2p"))]
 mod retry;
@@ -30,12 +31,16 @@ mod version_syncer;
 #[cfg(feature = "iroh")]
 pub use iroh::IrohP2PAdapter;
 #[cfg(feature = "iroh")]
-pub use iroh_event_handler::run_iroh_event_handler;
+pub use iroh_peer::{
+    IrohBlockstore, IrohCoordinator, IrohPeer, IrohPeerConfig, IrohPeerShutdown,
+    IrohReplicationStack, ManageChannel,
+};
 #[cfg(feature = "iroh")]
 pub use iroh_restore::restore_iroh_p2p_state;
 #[cfg(feature = "libp2p")]
 pub use libp2p::{CollectionLookup, P2PAdapter, VersionSyncer};
 pub use read_gate::{DbBlockClassifier, DbBlockReadGate};
+pub use replication_events::publish_replication_result;
 pub use replicator_status::{load_persisted_replicators, set_persisted_replicator_status};
 #[cfg(any(feature = "iroh", feature = "libp2p"))]
 pub use retry::{activate_retry_peer, run_retry_pass, spawn_failure_recorder, spawn_retry_loop};
