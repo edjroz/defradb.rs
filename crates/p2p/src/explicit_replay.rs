@@ -16,7 +16,9 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 #[cfg(any(feature = "libp2p-transport", feature = "iroh-transport"))]
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use crypto::{did::parse_did_key, public_key_from_bytes, sha256, Sha256Hash};
