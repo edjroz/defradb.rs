@@ -247,6 +247,27 @@ mod tests {
         client.close().await.unwrap();
     }
 
+    /// The peer proves the identity it started with, so the client may not
+    /// author as another one until the peer is restarted under it.
+    #[wasm_bindgen_test]
+    async fn identity_is_fixed_while_p2p_runs() {
+        let first_key = crypto::keys::Key::to_hex_string(&crypto::generate_ed25519().unwrap());
+        let second_key = crypto::keys::Key::to_hex_string(&crypto::generate_ed25519().unwrap());
+        let mut client = client("p2p_identity_fixed", Some(first_key)).await;
+        let first_did = client.did().unwrap();
+
+        let first_id = client.start_p2p(no_relays()).await.unwrap();
+        assert!(client.set_identity(&second_key, "ed25519").is_err());
+        assert_eq!(client.did().unwrap(), first_did);
+
+        client.stop_p2p().await.unwrap();
+        let second_did = client.set_identity(&second_key, "ed25519").unwrap();
+        assert_ne!(second_did, first_did);
+        let second_id = client.start_p2p(no_relays()).await.unwrap();
+        assert_ne!(second_id, first_id);
+        client.close().await.unwrap();
+    }
+
     #[wasm_bindgen_test]
     async fn peer_operations_need_a_running_peer() {
         let mut client = client("p2p_not_started", None).await;
