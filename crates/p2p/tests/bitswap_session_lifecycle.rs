@@ -68,7 +68,10 @@ async fn fetch_to_completion(
             HostEvent::BitswapComplete {
                 query_id, success, ..
             } if query_id == query => {
-                assert!(success, "the producer holds the block, the fetch must succeed");
+                assert!(
+                    success,
+                    "the producer holds the block, the fetch must succeed"
+                );
                 return query;
             }
             _ => continue,
@@ -77,7 +80,9 @@ async fn fetch_to_completion(
 }
 
 fn live_tasks() -> usize {
-    tokio::runtime::Handle::current().metrics().num_alive_tasks()
+    tokio::runtime::Handle::current()
+        .metrics()
+        .num_alive_tasks()
 }
 
 /// Waits for the task census to hold still for `hold`, and returns it.
