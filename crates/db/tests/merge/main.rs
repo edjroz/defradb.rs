@@ -2,6 +2,8 @@
 
 mod acp_merge_handler;
 mod broadcast_mutator_broadcast;
+mod browser_sync_collection_commit;
+mod browser_sync_collection_commit_recovery;
 mod browser_sync_tests;
 mod collection_heads;
 mod head_provider;
