@@ -303,6 +303,8 @@ jobs:
             exit 1
           fi
           grep -qE "^test result: ok\. [1-9][0-9]* passed" wasm-test.log
+      - name: Browser peer replicates through a hosted relay
+        run: tools/browser-p2p-e2e.sh
 
   lean-conformance:
     name: Lean Conformance

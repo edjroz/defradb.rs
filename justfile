@@ -522,6 +522,17 @@ test-wasm:
     export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner
     cargo test -p defra-wasm --target wasm32-unknown-unknown --lib --tests
 
+[doc("A browser peer replicating with a native node through its hosted relay (needs `just setup-browser`).")]
+[group('test')]
+test-browser-p2p:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v firefox >/dev/null 2>&1 && [ -x "{{ tooling }}/firefox/firefox" ]; then
+        export PATH="{{ tooling }}/firefox:$PATH"
+    fi
+    export PATH="{{ tooling_bin }}:$PATH"
+    tools/browser-p2p-e2e.sh
+
 # Unit tests for one crate: `just test-crate crdt`.
 [group('test')]
 test-crate crate *args:
