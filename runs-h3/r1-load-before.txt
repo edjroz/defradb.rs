@@ -1,4 +1,0 @@
-13:48  up 1 day,  2:44, 2 users, load averages: 1.21 2.81 3.12
-78344  13392 /private/tmp/claude-501/-Users-edjroz-Repos-Source-defradb-rs-spike-h1-partition-catchup/d5b3a7b4-5ed4-4fef-8fc9-64a31aaac7a7/scratchpad/p2p_partition-h1c
-81969  75184 /private/tmp/claude-501/-Users-edjroz-Repos-Source-defradb-rs-spike-h1-partition-catchup/d5b3a7b4-5ed4-4fef-8fc9-64a31aaac7a7/scratchpad/defra-h1
-82134  69328 /private/tmp/claude-501/-Users-edjroz-Repos-Source-defradb-rs-spike-h1-partition-catchup/d5b3a7b4-5ed4-4fef-8fc9-64a31aaac7a7/scratchpad/defra-h1

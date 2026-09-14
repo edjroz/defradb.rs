@@ -1,5 +1,0 @@
-r1-replicate-distinct receiver composite-merges: 2875
-r2-replicate-hot50 receiver composite-merges: 2997
-r4-stacklog receiver composite-merges: 997
-r5-cache1k receiver composite-merges: 2758
-r3-local-only writer composite-merges: 0
