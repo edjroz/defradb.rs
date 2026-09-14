@@ -193,6 +193,9 @@ async fn redial_replicator<S, T>(
 /// stalls every peer queued behind it on the same pass.
 const RECONNECT_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// First delay after a failed probe, doubling up to `RECONNECT_BACKOFF_MAX`.
+/// Deliberately the sweep interval, because that is the tick this probe runs
+/// on: a shorter floor would round up to the next pass and change nothing, so
+/// shortening the sweep is meant to lower this floor with it.
 const RECONNECT_BACKOFF_MIN: std::time::Duration = p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL;
 /// Ceiling on the per-peer probe backoff.
 const RECONNECT_BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(60);
