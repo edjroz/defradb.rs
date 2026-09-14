@@ -147,6 +147,11 @@ impl DefraClient {
         key_type: &str,
     ) -> std::result::Result<String, JsValue> {
         self.ensure_open()?;
+        // A running peer keeps proving the identity it started with, so a new
+        // one would sign writes as a DID its peers cannot tie to this endpoint.
+        if self.p2p.is_some() {
+            return Err(WasmError::P2P("stop P2P before changing identity".into()).into());
+        }
         let identity = ClientIdentity::from_private_key(private_key_hex, key_type)?;
         let did = identity.did().to_string();
         self.identity = Some(identity);
