@@ -13,8 +13,7 @@ pub(crate) use routes::{create_router_with_state_and_body_limits, BodyLimits};
 #[cfg(feature = "server")]
 pub use state::{AppState, AppStateBuilder};
 pub use traits::{
-    AcpLightClientStatus, AcpOperations, BackupOperations, BlockOperations, BrowserSyncError,
-    BrowserSyncOperations, BrowserSyncRequest, BrowserSyncResponse, BrowserSyncResult,
+    AcpLightClientStatus, AcpOperations, BackupOperations, BlockOperations,
     CollectionManagementOperations, CollectionVersionOperations, DocumentAcpOperations,
     DumpOperations, EncryptedIndexInfo, EncryptedIndexOperations, ExplicitReplayCapabilityInput,
     ImportResult, IndexFieldInfo, IndexInfo, IndexOperations, LensOperations, ManageRequester,

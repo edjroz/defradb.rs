@@ -2,7 +2,6 @@
 
 pub mod acp_merge_handler;
 pub mod broadcast_mutator;
-pub mod browser_sync;
 pub mod head_provider;
 pub mod merge_handler;
 #[cfg(all(not(target_arch = "wasm32"), feature = "p2p"))]
@@ -21,9 +20,6 @@ pub mod txn_broadcaster;
 
 pub use acp_merge_handler::{AcpMergeError, AcpMergeHandler};
 pub use broadcast_mutator::{BroadcastMutator, BroadcastSeOptions, SeArtifactRepusher};
-pub use browser_sync::{
-    BrowserSyncDocumentRef, BrowserSyncEngine, BrowserSyncError, ValidatedBrowserSyncDocument,
-};
 pub use head_provider::DbHeadProvider;
 pub use merge_handler::{DbMergeHandler, MergeError, DEFAULT_MAX_MERGE_DEPTH};
 #[cfg(all(not(target_arch = "wasm32"), feature = "p2p"))]

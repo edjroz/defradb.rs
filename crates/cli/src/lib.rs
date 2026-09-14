@@ -6,9 +6,6 @@
 pub(crate) mod acp_adapter;
 pub(crate) mod backup_adapter;
 pub(crate) mod block_adapter;
-pub(crate) mod browser_sync_adapter;
-#[cfg(test)]
-mod browser_sync_adapter_tests;
 pub mod cli;
 pub(crate) mod collection_mgmt_adapter;
 pub mod commands;

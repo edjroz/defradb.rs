@@ -2,7 +2,6 @@
 
 mod acp_merge_handler;
 mod broadcast_mutator_broadcast;
-mod browser_sync_tests;
 mod collection_heads;
 mod head_provider;
 mod merge_handler_composite_persist;
