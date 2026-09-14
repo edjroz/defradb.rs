@@ -1,6 +1,7 @@
 //! P2P merge, broadcast, document push and searchable-encryption artifacts.
 
 mod acp_merge_handler;
+mod acp_protected_update;
 mod broadcast_mutator_broadcast;
 mod collection_heads;
 mod head_provider;

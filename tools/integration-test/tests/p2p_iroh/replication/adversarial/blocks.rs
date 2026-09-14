@@ -40,9 +40,13 @@ pub fn author(seed: u8) -> Author {
 
 #[derive(Clone, Copy)]
 pub enum Signing {
+    Unsigned,
     CompositeOnly,
     EveryBlock,
 }
+
+const ACTIVE: u8 = 1;
+const DELETED: u8 = 2;
 
 pub struct Fields(Vec<(&'static str, NormalValue)>);
 
@@ -71,11 +75,13 @@ pub struct Fragment {
     pub blocks: Vec<(Cid, Vec<u8>)>,
 }
 
-/// The heads an update extends: a document's genesis composite and fields.
+/// The heads an update extends: a document's latest composite, the latest
+/// block of each field, and the composite's height.
 pub struct Parent {
     doc_id: String,
     composite: Cid,
     fields: HashMap<String, Cid>,
+    height: u64,
 }
 
 pub fn genesis_parent(doc_id: &str, composite: Cid, fields: HashMap<String, Cid>) -> Parent {
@@ -83,11 +89,29 @@ pub fn genesis_parent(doc_id: &str, composite: Cid, fields: HashMap<String, Cid>
         doc_id: doc_id.to_string(),
         composite,
         fields,
+        height: 1,
+    }
+}
+
+/// The heads a genesis fragment leaves once merged.
+pub fn genesis_parent_of(genesis: &Fragment) -> Parent {
+    genesis_parent(&genesis.doc_id, genesis.root, field_cids(genesis))
+}
+
+/// The heads `parent` has once `fragment`, an update extending it, is merged.
+pub fn child_of(parent: &Parent, fragment: &Fragment) -> Parent {
+    let mut fields = parent.fields.clone();
+    fields.extend(field_cids(fragment));
+    Parent {
+        doc_id: parent.doc_id.clone(),
+        composite: fragment.root,
+        fields,
+        height: parent.height + 1,
     }
 }
 
 pub fn genesis(fields: &Fields, version_id: &str, signer: &Author, signing: Signing) -> Fragment {
-    commit(fields, version_id, signer, signing, None)
+    commit(fields, version_id, signer, signing, None, ACTIVE)
 }
 
 pub fn update(
@@ -97,7 +121,19 @@ pub fn update(
     signer: &Author,
     signing: Signing,
 ) -> Fragment {
-    commit(fields, version_id, signer, signing, Some(parent))
+    commit(fields, version_id, signer, signing, Some(parent), ACTIVE)
+}
+
+/// A signed delete: a composite with the deleted status and no field links.
+pub fn delete(parent: &Parent, version_id: &str, signer: &Author) -> Fragment {
+    commit(
+        &Fields(Vec::new()),
+        version_id,
+        signer,
+        Signing::EveryBlock,
+        Some(parent),
+        DELETED,
+    )
 }
 
 /// A genesis whose root links a signature `impostor` made over other content.
@@ -183,8 +219,9 @@ fn commit(
     signer: &Author,
     signing: Signing,
     parent: Option<&Parent>,
+    status: u8,
 ) -> Fragment {
-    let priority = if parent.is_some() { 2 } else { 1 };
+    let priority = parent.map_or(1, |parent| parent.height + 1);
     let mut blocks = Vec::new();
     let mut links = Vec::new();
 
@@ -217,16 +254,18 @@ fn commit(
         CrdtDelta::Composite(CompositeDeltaPayload {
             schema_version_id: version_id.to_string(),
             priority,
-            status: 1,
+            status,
         }),
         parent
             .map(|parent| vec![parent.composite])
             .unwrap_or_default(),
         links,
     );
-    let (sig_cid, sig_bytes) = sign(&composite, &signer.key);
-    blocks.push((sig_cid, sig_bytes));
-    composite.signature = Some(sig_cid);
+    if !matches!(signing, Signing::Unsigned) {
+        let (sig_cid, sig_bytes) = sign(&composite, &signer.key);
+        blocks.push((sig_cid, sig_bytes));
+        composite.signature = Some(sig_cid);
+    }
     let (root, root_bytes) = encode(&composite);
     blocks.push((root, root_bytes));
 
@@ -239,6 +278,19 @@ fn commit(
         root,
         blocks,
     }
+}
+
+fn field_cids(fragment: &Fragment) -> HashMap<String, Cid> {
+    fragment
+        .blocks
+        .iter()
+        .filter_map(
+            |(cid, bytes)| match Block::from_dag_cbor(bytes).ok()?.delta {
+                CrdtDelta::Lww(payload) => Some((payload.field_name, *cid)),
+                _ => None,
+            },
+        )
+        .collect()
 }
 
 fn cbor(value: &NormalValue) -> Vec<u8> {
