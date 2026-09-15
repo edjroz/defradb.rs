@@ -47,6 +47,19 @@ pub struct BulkIndexResult {
     pub skipped: usize,
 }
 
+/// One batch of [`IndexManager::index_batch_from`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BatchIndexResult {
+    /// Documents indexed by this batch.
+    pub indexed: usize,
+    /// Documents skipped (unset short id).
+    pub skipped: usize,
+    /// The short id of the last document indexed, if any.
+    pub last_doc_short_id: Option<u64>,
+    /// The source yielded nothing more.
+    pub exhausted: bool,
+}
+
 /// Generate an index name matching Go's `{Col}_{firstField}_ASC` pattern.
 ///
 /// If the base name already exists, appends `_2`, `_3`, etc. to avoid collisions.
@@ -466,45 +479,72 @@ impl IndexManager {
         source: &mut S,
         schema: &CollectionVersion,
     ) -> Result<BulkIndexResult> {
-        let index = self
-            .indexes
-            .get(index_name)
-            .ok_or_else(|| Error::Other(format!("index '{}' not found", index_name)))?;
+        let batch = self
+            .index_batch_from(datastore, index_name, source, schema, usize::MAX)
+            .await?;
+        self.build_index(datastore, index_name).await?;
+        Ok(BulkIndexResult {
+            indexed: batch.indexed,
+            skipped: batch.skipped,
+        })
+    }
 
-        let mut indexed_count = 0;
-        let mut skipped_count = 0;
+    /// Index up to `max_docs` documents from `source`, without building.
+    ///
+    /// An entry the document already holds is left as it is: a write that
+    /// landed between the definition and this batch maintained the index
+    /// itself, and a batch re-run after a conflict meets its own work.
+    pub async fn index_batch_from<S: DocumentSource + ?Sized>(
+        &self,
+        datastore: &NamespaceView,
+        index_name: &str,
+        source: &mut S,
+        schema: &CollectionVersion,
+        max_docs: usize,
+    ) -> Result<BatchIndexResult> {
+        let index = self.index_named(index_name)?;
+        let mut batch = BatchIndexResult {
+            indexed: 0,
+            skipped: 0,
+            last_doc_short_id: None,
+            exhausted: false,
+        };
         let mut mutable_datastore = datastore.clone();
 
-        while let Some((doc_short_id, doc)) = source.next().await? {
+        while batch.indexed + batch.skipped < max_docs {
+            let Some((doc_short_id, doc)) = source.next().await? else {
+                batch.exhausted = true;
+                break;
+            };
             if doc_short_id == 0 {
-                skipped_count += 1;
+                batch.skipped += 1;
                 continue;
             }
-
-            let value_sets = self.extract_index_values(&doc, index.description(), schema)?;
-
-            for values in &value_sets {
-                index
-                    .save(&mut mutable_datastore, doc_short_id, values)
+            for values in &self.extract_index_values(&doc, index.description(), schema)? {
+                self.save_healing_stale_unique(&mut mutable_datastore, index, doc_short_id, values)
                     .await
                     .map_err(Error::Storage)?;
             }
-
-            indexed_count += 1;
+            batch.indexed += 1;
+            batch.last_doc_short_id = Some(doc_short_id);
         }
+        Ok(batch)
+    }
 
-        // One chance to build here, rather than leaving a vector index to
-        // notice on its own: the loop above would otherwise ask the same
-        // per-write question for every document a bulk load lands at once.
-        index
-            .build_if_needed(&mut mutable_datastore)
+    /// One chance to train and build, taken once a bulk load has landed
+    /// rather than asked per document. A no-op for every index kind but
+    /// vector.
+    pub async fn build_index(&self, datastore: &NamespaceView, index_name: &str) -> Result<()> {
+        self.index_named(index_name)?
+            .build_if_needed(&mut datastore.clone())
             .await
-            .map_err(Error::Storage)?;
+            .map_err(Error::Storage)
+    }
 
-        Ok(BulkIndexResult {
-            indexed: indexed_count,
-            skipped: skipped_count,
-        })
+    fn index_named(&self, index_name: &str) -> Result<&IndexType> {
+        self.indexes
+            .get(index_name)
+            .ok_or_else(|| Error::Other(format!("index '{}' not found", index_name)))
     }
 
     /// Rebuild an index, preserving existing conflicts but rejecting migration-created ones.
@@ -517,10 +557,7 @@ impl IndexManager {
         schema: &CollectionVersion,
         original_keys: &HashMap<u64, std::collections::HashSet<Vec<u8>>>,
     ) -> Result<()> {
-        let index = self
-            .indexes
-            .get(index_name)
-            .ok_or_else(|| Error::Other(format!("index '{}' not found", index_name)))?;
+        let index = self.index_named(index_name)?;
 
         let IndexType::Unique(unique) = index else {
             self.bulk_index(datastore, index_name, documents, schema)

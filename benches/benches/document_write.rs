@@ -27,7 +27,10 @@ use defra_perf::measure::repeat;
 use document::{DocID, Document, NormalValue};
 use query::mutator::DocMutator;
 use query::DocFetcher;
-use schema::{CollectionVersion, FieldDescription, FieldKind};
+use schema::{
+    CollectionVersion, FieldDescription, FieldKind, IndexKind, IndexedFieldDescription,
+    OrderedIndexDescription,
+};
 use storage::RegolithStore;
 
 mod common;
@@ -354,12 +357,66 @@ fn create_branchable(c: &mut Criterion) {
     group.finish();
 }
 
+const BACKFILL_DOCS: [usize; 2] = [1_000, 10_000];
+
+/// A database holding `docs` documents of four fields and no index yet.
+async fn populated(docs: usize) -> Arc<DB<RegolithStore>> {
+    let store = Arc::new(RegolithStore::in_memory().expect("an in-memory store"));
+    let db = Arc::new(DB::from_arc(store).expect("a database over it"));
+    db.create_collection(collection_version(4))
+        .await
+        .expect("the collection to register");
+    let mutator = Mutator::new(db.clone());
+    let base = next_seq() * docs;
+    for seq in 0..docs {
+        mutator
+            .create(COLLECTION, document(4, base + seq))
+            .await
+            .expect("the seed create to succeed");
+    }
+    db
+}
+
+/// `DB::create_index` over a populated collection: the definition, then
+/// every existing document indexed in batches. Reported per document, so
+/// the number is the backfill's throughput.
+fn index_backfill(c: &mut Criterion) {
+    let rt = common::owned_runtime();
+    let mut group = c.benchmark_group("index_backfill");
+    group.sample_size(10);
+    for docs in BACKFILL_DOCS {
+        group.throughput(Throughput::Elements(docs as u64));
+        group.bench_with_input(BenchmarkId::from_parameter(docs), &docs, |b, &docs| {
+            b.iter_batched_ref(
+                || rt.block_on(populated(docs)),
+                |db| {
+                    rt.block_on(async {
+                        let fields = vec![IndexedFieldDescription {
+                            name: "field_0".to_string(),
+                            descending: false,
+                        }];
+                        let kind = IndexKind::Ordered(OrderedIndexDescription { unique: false });
+                        black_box(
+                            db.create_index(COLLECTION, Some("by_field_0"), fields, kind)
+                                .await
+                                .expect("the index to build"),
+                        );
+                    })
+                },
+                BatchSize::PerIteration,
+            );
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     create,
     create_many,
     update,
     delete,
-    create_branchable
+    create_branchable,
+    index_backfill
 );
 criterion_main!(benches);

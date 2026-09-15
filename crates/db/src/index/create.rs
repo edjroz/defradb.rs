@@ -1,41 +1,75 @@
-//! Index creation: the definition, the action that tracks it, and the
-//! backfill of every document the collection already holds, under the
-//! collection's write guard.
+//! Index creation: the definition and its `BACKFILL_INDEX` action commit
+//! under the collection's write guard; the documents that already exist are
+//! indexed afterwards by the batches in [`backfill`](crate::index::backfill).
 
-use datastore::NamespaceView;
+use std::sync::Arc;
+
+use futures::channel::oneshot;
 use schema::{IndexDescription, IndexKind, IndexedFieldDescription};
 use storage::corekv::{Key, Store};
 use storage::keys::systemstore::{CollectionKey, CollectionNameKey};
 
-use crate::collection::Collection;
+use crate::database::action::ActionExecutionLease;
+use crate::database::spawn::spawn_task;
 use crate::error::{Error, Result};
+use crate::index::backfill::{encode_progress, BackfillPlan};
 use crate::index::IndexManager;
-use crate::{BackfillSource, DB};
+use crate::DB;
 
 impl<S: Store> DB<S> {
     /// Create an index of `kind` over `fields` on `collection_name`, then
     /// index every document the collection already holds. A missing or empty
     /// `name` is generated.
     ///
-    /// The collection's write guard, the one a truncate or a patch holds, is
-    /// held from the definition through the backfill: a write landing between
-    /// the backfill's scan and its commit would leave an entry for a value the
-    /// document no longer has, and a document created during the backfill
-    /// would be missed at any isolation level. The backfill's outcome is
-    /// recorded on the collection's `BACKFILL_INDEX` action; a failed backfill
-    /// leaves the definition in place and the failure on the action.
+    /// The definition, the in-progress action and the backfill's fence (the
+    /// first short id no existing document has) commit under the write guard
+    /// a truncate or a patch holds, and the cache reloads before that guard
+    /// is released, so every write landing afterwards maintains the index
+    /// itself. The backfill of the documents below the fence then runs in
+    /// bounded transactions that hold no guard, detached from this future so
+    /// a caller that gives up on waiting does not stop it; the planner uses
+    /// the index once the action completes. A failed backfill leaves the
+    /// definition in place and the failure on the action.
     pub async fn create_index(
+        self: &Arc<Self>,
+        collection_name: &str,
+        name: Option<&str>,
+        fields: Vec<IndexedFieldDescription>,
+        kind: IndexKind,
+    ) -> Result<IndexDescription>
+    where
+        S: 'static,
+    {
+        let (index, lease, plan) = self
+            .define_index(collection_name, name, fields, kind)
+            .await?;
+        let (done, outcome) = oneshot::channel();
+        let db = Arc::clone(self);
+        spawn_task(async move {
+            let _ = done.send(db.backfill_index(lease, plan).await);
+        });
+        outcome
+            .await
+            .map_err(|_| Error::Other("the index backfill ended without reporting".into()))??;
+        Ok(index)
+    }
+
+    async fn define_index(
         &self,
         collection_name: &str,
         name: Option<&str>,
         fields: Vec<IndexedFieldDescription>,
         kind: IndexKind,
-    ) -> Result<IndexDescription> {
-        let collection = self.require_collection(collection_name)?;
-        let collection_id = collection.collection_id().to_string();
+    ) -> Result<(IndexDescription, ActionExecutionLease, BackfillPlan)> {
+        let collection_id = self
+            .require_collection(collection_name)?
+            .collection_id()
+            .to_string();
         let _guards = self
             .collection_write_guards(std::iter::once(collection_id.clone()))
             .await?;
+        let collection = self.require_collection(collection_name)?;
+        let fence = self.peek_doc_short_id().await?;
 
         let txn = self.new_txn(false).await?;
         let (index, lease) = {
@@ -80,51 +114,16 @@ impl<S: Store> DB<S> {
                     &index.id.to_string(),
                 )
                 .await?;
+            let plan = BackfillPlan::new(collection_name, &collection_id, &index, fence, 0);
+            systemstore
+                .set(&plan.progress_key().bytes(), &encode_progress(fence, 0))
+                .await?;
             (index, lease)
         };
         txn.commit().await?;
         self.publish_started_action(&lease);
         self.reload_cache().await?;
-
-        match self.backfill_index(collection_name, &index.name).await {
-            Ok(()) => self.complete_action(lease).await?,
-            Err(error) => self.fail_action(lease, &error.to_string()).await?,
-        }
-        self.reload_cache().await?;
-        Ok(index)
+        let plan = BackfillPlan::new(collection_name, &collection_id, &index, fence, 0);
+        Ok((index, lease, plan))
     }
-
-    async fn backfill_index(&self, collection_name: &str, index_name: &str) -> Result<()> {
-        let collection = self.require_collection(collection_name)?;
-        let txn = self.new_txn(false).await?;
-        let datastore = txn.datastore()?;
-        let systemstore = txn.systemstore()?;
-        let result = backfill_in(&collection, &datastore, &systemstore, index_name).await;
-        // A view holds a reference to the transaction, and a commit refuses
-        // to run while one is alive.
-        drop((datastore, systemstore));
-        if let Err(error) = result {
-            txn.discard()?;
-            return Err(error);
-        }
-        txn.commit().await?;
-        self.reindex_collection_with_migrations(collection_name)
-            .await
-    }
-}
-
-async fn backfill_in(
-    collection: &Collection,
-    datastore: &NamespaceView,
-    systemstore: &NamespaceView,
-    index_name: &str,
-) -> Result<()> {
-    let manager =
-        IndexManager::from_collection(collection.schema().resolved_root_id(), collection.schema())?;
-    let mut source =
-        BackfillSource::open(collection.clone(), datastore.clone(), systemstore.clone()).await?;
-    manager
-        .bulk_index_from(datastore, index_name, &mut source, collection.schema())
-        .await?;
-    Ok(())
 }

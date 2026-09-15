@@ -17,18 +17,24 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
 
         // Look up the collection to determine field kind and counter type,
         // with fallback to metadata's collection_id for cross-version sync
+        let missing_collection = || {
+            MergeError::MissingMetadata(format!(
+                "Collection not found for schema_version_id: {}",
+                payload.schema_version_id
+            ))
+        };
         let collection = self
             .block_collection(&payload.schema_version_id, metadata.collection_id)?
-            .ok_or_else(|| {
-                MergeError::MissingMetadata(format!(
-                    "Collection not found for schema_version_id: {}",
-                    payload.schema_version_id
-                ))
-            })?;
+            .ok_or_else(missing_collection)?;
         let _collection_guard = self
             .db
             .collection_read_guard(collection.collection_id())
             .await?;
+        // Resolved again under the guard: a definition committed under the
+        // write guard since is the one this merge writes with.
+        let collection = self
+            .block_collection(&payload.schema_version_id, metadata.collection_id)?
+            .ok_or_else(missing_collection)?;
         let _guard = self.merge_queue.acquire(&doc_id_str).await;
 
         tracing::debug!(

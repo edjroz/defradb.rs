@@ -25,6 +25,7 @@ use storage::corekv::Store;
 
 pub mod action;
 pub(crate) mod dump;
+pub(crate) mod spawn;
 
 /// Default maximum number of lazy migrations written in one transaction.
 pub const DEFAULT_MIGRATION_WRITE_BACK_BATCH_SIZE: usize = 128;
@@ -380,7 +381,8 @@ impl<S: Store> DB<S> {
     {
         self.load_collections().await?;
         self.initialize_migrations().await?;
-        self.migrate_index_format().await
+        self.migrate_index_format().await?;
+        self.resume_index_backfills().await
     }
 
     /// Set the event bus for subscription notifications.
@@ -406,6 +408,11 @@ impl<S: Store> DB<S> {
     /// Allocate a globally unique document short ID.
     pub async fn next_doc_short_id(&self) -> Result<u64> {
         self.doc_short_id_allocator.next().await
+    }
+
+    /// The short ID the next allocation returns, left unallocated.
+    pub(crate) async fn peek_doc_short_id(&self) -> Result<u64> {
+        self.doc_short_id_allocator.peek().await
     }
 
     /// Resolve a document short ID or allocate and stage a new mapping.
