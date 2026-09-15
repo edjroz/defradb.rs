@@ -297,7 +297,8 @@ file keeps loading.
 
 Profiles come from regolith itself: `Options::default()` for a server,
 `Options::embedded()` for a 1-4 MiB working set, and `Options::wasm()` for a
-browser or wasi module. Transactions run at `Serializable` with
+browser or wasi module. Transactions run at `RepeatableRead` (every point read
+validated, scans recorded per stretch and never per key) with
 `DurabilityMode::Immediate`.
 
 ## Goal

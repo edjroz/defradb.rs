@@ -6,22 +6,7 @@ use defra_core::merge::BlockMetadata;
 use storage::corekv::Store;
 
 use super::{DbMergeHandler, MergeError};
-
-#[cfg(not(target_arch = "wasm32"))]
-fn spawn_task<F>(future: F)
-where
-    F: std::future::Future<Output = ()> + Send + 'static,
-{
-    tokio::spawn(future);
-}
-
-#[cfg(target_arch = "wasm32")]
-fn spawn_task<F>(future: F)
-where
-    F: std::future::Future<Output = ()> + 'static,
-{
-    wasm_bindgen_futures::spawn_local(future);
-}
+use crate::database::spawn::spawn_task;
 
 impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
     /// Fire-and-forget cross-peer DEK request for an encrypted field block
