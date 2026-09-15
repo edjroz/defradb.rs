@@ -69,8 +69,11 @@ impl DefraClient {
     /// # Configuration
     ///
     /// Pass a JavaScript object with:
-    /// - `db_name`: the OPFS directory the store lives in
-    /// - `db_name`: Database name (optional)
+    /// - `db_name`: the OPFS directory the store lives in (optional)
+    /// - `private_key`, `key_type`: a key to author with (optional)
+    /// - `require_sync_handles`: fail instead of falling back to the
+    ///   in-memory mirror when OPFS synchronous access handles are refused,
+    ///   so a Worker taking over a database can retry (optional)
     ///
     /// # Example
     ///
@@ -235,7 +238,7 @@ impl DefraClient {
         // A regolith store on the origin-private filesystem, which is the
         // only filesystem this target has.
         let db_name = config.db_name.as_deref().unwrap_or("defradb");
-        let store = RegolithStore::open_opfs(db_name)
+        let store = RegolithStore::open_opfs_with(db_name, config.require_sync_handles)
             .await
             .map_err(|e| WasmError::Storage(format!("Failed to open store: {}", e)))?;
 
@@ -512,6 +515,7 @@ mod tests {
             db_name: Some(name.to_string()),
             private_key: Some(private_key_hex.clone()),
             key_type: Some("ed25519".into()),
+            ..Default::default()
         })
         .unwrap();
         let client = DefraClient::create(config).await.unwrap();
@@ -729,6 +733,33 @@ mod tests {
     #[wasm_bindgen_test]
     async fn test_client_creation() {
         let client = DefraClient::create(test_config("test_creation"))
+            .await
+            .unwrap();
+        assert!(!client.closed);
+    }
+
+    /// Tests run on the page's main thread, where browsers refuse synchronous
+    /// access handles. Requiring them must fail the open rather than mount
+    /// the mirror, and must leave nothing held that stops the same database
+    /// opening without the requirement.
+    #[wasm_bindgen_test]
+    async fn a_client_that_requires_sync_handles_is_refused_off_a_worker() {
+        let required = serde_wasm_bindgen::to_value(&ClientConfig {
+            db_name: Some("test_require_sync_handles".to_string()),
+            require_sync_handles: true,
+            ..Default::default()
+        })
+        .unwrap();
+        let refused = match DefraClient::create(required).await {
+            Ok(_) => panic!("a client requiring sync handles opened off a worker"),
+            Err(error) => error.as_string().unwrap_or_default(),
+        };
+        assert!(
+            refused.contains("sync access handles"),
+            "the refusal should name the requirement: {refused}"
+        );
+
+        let client = DefraClient::create(test_config("test_require_sync_handles"))
             .await
             .unwrap();
         assert!(!client.closed);
