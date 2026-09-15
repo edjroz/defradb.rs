@@ -119,21 +119,34 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
         &self.db
     }
 
-    /// The collection a block belongs to: by its schema version, else by the
-    /// collection id its metadata carries. A lookup error is an error, never
-    /// an absent collection, so the collection guard is never skipped on one.
-    pub(crate) fn block_collection(
+    /// The active collection a block belongs to, by its schema version id,
+    /// else by the id its metadata carries. Either id may name a version or
+    /// the collection itself: the two are equal for a collection's first
+    /// version and differ after a patch, and metadata recovered from a block
+    /// carries the version. A version no longer active is looked up in the
+    /// store for the collection id it belongs to. A lookup error is an
+    /// error, never an absent collection, so the collection guard is never
+    /// skipped on one.
+    pub(crate) async fn block_collection(
         &self,
         schema_version_id: &str,
         fallback_collection_id: Option<&str>,
     ) -> std::result::Result<Option<Collection>, MergeError> {
-        match self.db.find_collection_by_id(schema_version_id)? {
-            Some(collection) => Ok(Some(collection)),
-            None => match fallback_collection_id {
-                Some(id) => Ok(self.db.find_collection_by_id(id)?),
-                None => Ok(None),
-            },
+        let ids = || std::iter::once(schema_version_id).chain(fallback_collection_id);
+        for id in ids() {
+            if let Some(collection) = self.db.get_collection_by_version_id(id)? {
+                return Ok(Some(collection));
+            }
+            if let Some(collection) = self.db.find_collection_by_id(id)? {
+                return Ok(Some(collection));
+            }
         }
+        for id in ids() {
+            if let Some(stored) = self.db.get_collection_by_version_id_full(id).await? {
+                return Ok(self.db.find_collection_by_id(stored.collection_id())?);
+            }
+        }
+        Ok(None)
     }
 
     /// The per-document write queue serialising merges.

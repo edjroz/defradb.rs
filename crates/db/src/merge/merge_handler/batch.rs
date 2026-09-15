@@ -121,7 +121,7 @@ impl<S: Store + 'static, B: blockstore::Blockstore + 'static> DbMergeHandler<S, 
         // several collections. Acquired before the per-doc merge queue below.
         let mut batch_collection_ids = Vec::with_capacity(blocks.len());
         for block in blocks {
-            if let Some(collection) = self.db.find_collection_by_id(&block.collection_id)? {
+            if let Some(collection) = self.block_collection(&block.collection_id, None).await? {
                 batch_collection_ids.push(collection.collection_id().to_string());
             }
         }

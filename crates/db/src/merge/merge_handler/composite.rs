@@ -122,8 +122,9 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
 
         let doc_id_str = self.resolve_composite_doc_id(cid, block, depth).await?;
 
-        let collection =
-            self.block_collection(&payload.schema_version_id, metadata.collection_id)?;
+        let collection = self
+            .block_collection(&payload.schema_version_id, metadata.collection_id)
+            .await?;
         // Lock order: collection read guard, then merge queue, then transaction
         // (matches local writes via DB::collection_read_guard); reversed, a
         // truncate waiting on the write lock can deadlock against a write that
@@ -227,15 +228,8 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
         }
 
         let collection = self
-            .db
-            .find_collection_by_id(&payload.schema_version_id)
-            .ok()
-            .flatten()
-            .or_else(|| {
-                metadata
-                    .collection_id
-                    .and_then(|cid| self.db.find_collection_by_id(cid).ok().flatten())
-            });
+            .block_collection(&payload.schema_version_id, metadata.collection_id)
+            .await?;
 
         if let Some(collection) = collection.as_ref() {
             if let Some(reason) = self
