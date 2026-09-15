@@ -18,6 +18,7 @@ type WasmRunner =
     QueryRunner<LensedAutoCommitFetcher<RegolithStore>, DbTransactionRegistry<RegolithStore>>;
 
 use crate::bindings::{from_js, to_js, ClientConfig, CollectionInfo, FieldInfo};
+use crate::document_changes::DocumentChanges;
 use crate::error::{Result, WasmError};
 use crate::identity::{ClientIdentity, SigningGuard};
 use crate::p2p::P2PRuntime;
@@ -165,6 +166,16 @@ impl DefraClient {
     #[wasm_bindgen]
     pub fn did(&self) -> Option<String> {
         self.identity.as_ref().map(|id| id.did().to_string())
+    }
+
+    /// Notifications of documents changing in this client, by a local write
+    /// or a merge from a peer. See [`DocumentChanges`].
+    #[wasm_bindgen]
+    pub fn document_changes(&self) -> std::result::Result<DocumentChanges, JsValue> {
+        self.ensure_open()?;
+        Ok(DocumentChanges::new(
+            self.event_bus.subscribe_document_changes(),
+        ))
     }
 
     /// A JWT proving possession of this client's key, for `audience` — the host
@@ -763,6 +774,49 @@ mod tests {
             .await
             .unwrap();
         assert!(!client.closed);
+    }
+
+    /// A write names its document in the next batch, marked local, and closing
+    /// the client ends the stream with null rather than leaving it pending.
+    #[wasm_bindgen_test]
+    async fn a_local_write_arrives_as_a_document_change() {
+        let mut client = DefraClient::create(test_config("test_document_changes"))
+            .await
+            .unwrap();
+        client
+            .add_schema("type Note { text: String }")
+            .await
+            .unwrap();
+        let mut changes = client.document_changes().unwrap();
+
+        let created = client
+            .mutate(r#"mutation { add_Note(input: {text: "hello"}) { _docID } }"#)
+            .await
+            .unwrap();
+        let created: serde_json::Value = serde_wasm_bindgen::from_value(created).unwrap();
+        let added = &created["data"]["add_Note"];
+        let doc_id = added[0]["_docID"]
+            .as_str()
+            .or_else(|| added["_docID"].as_str())
+            .unwrap_or_else(|| panic!("no _docID in {created}"))
+            .to_string();
+
+        let batch: serde_json::Value =
+            serde_wasm_bindgen::from_value(changes.next_batch().await.unwrap()).unwrap();
+        let change = batch["changes"]
+            .as_array()
+            .and_then(|all| {
+                all.iter()
+                    .find(|change| change["doc_id"] == doc_id.as_str())
+            })
+            .unwrap_or_else(|| panic!("{doc_id} is not in {batch}"));
+        assert_eq!(change["local"], true, "a write here is local: {batch}");
+
+        client.close().await.unwrap();
+        assert!(
+            changes.next_batch().await.unwrap().is_null(),
+            "a closed client ends its change stream"
+        );
     }
 
     #[wasm_bindgen_test]
