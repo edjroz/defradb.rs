@@ -68,6 +68,16 @@ impl<S: Store> DocShortIdAllocator<S> {
         Ok(id)
     }
 
+    /// The id the next [`next`](Self::next) returns, left unallocated.
+    pub async fn peek(&self) -> Result<u64> {
+        let mut range = self.range.lock().await;
+        if range.remaining == 0 {
+            range.next = self.reserve_range().await?;
+            range.remaining = self.reservation_size;
+        }
+        Ok(range.next)
+    }
+
     async fn reserve_range(&self) -> Result<u64> {
         let key = DocShortIDSequenceKey::new().bytes();
         let mut conflicts = 0;

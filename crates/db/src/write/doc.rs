@@ -109,7 +109,7 @@ impl<S: Store> DbDocMutator<S> {
         collection: &Collection,
     ) -> query::error::Result<()> {
         self.db
-            .acquire_collection_read_lock(&self.txn, collection.collection_id())
+            .acquire_collection_read_lock(&self.txn, collection)
             .await
             .map_err(|error| query::error::QueryError::execution(error.to_string()))?;
 
