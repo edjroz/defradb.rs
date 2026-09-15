@@ -209,6 +209,7 @@ mod tests {
                 db_name: Some(name.to_string()),
                 private_key,
                 key_type,
+                ..Default::default()
             })
             .unwrap(),
         )
