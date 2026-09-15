@@ -69,7 +69,7 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: .github/scripts/install-linux-ci-deps.sh
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all -- -D warnings
+      - run: cargo clippy --all --all-targets -- -D warnings
 
   feature-checks:
     name: Feature checks (${{ matrix.group }})

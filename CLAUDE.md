@@ -206,7 +206,7 @@ Single-purpose binaries, each its own `[[test]]` with no submodules:
 ```bash
 cargo test                         # Run all unit tests
 cargo test -p crdt                 # Test specific crate
-cargo clippy --all -- -D warnings  # Lint
+cargo clippy --all --all-targets -- -D warnings  # Lint, benches included
 just check-node-graph              # Feature-graph contracts for defra-node
 cargo fmt --all                    # Format
 cargo build --release              # Build release
@@ -269,7 +269,7 @@ git worktree remove ../defradb.rs-foo              # Remove worktree
 ## Before Committing
 
 1. `cargo test` passes
-2. `cargo clippy --all -- -D warnings` clean
+2. `cargo clippy --all --all-targets -- -D warnings` clean
 3. `cargo fmt --all` applied
 4. If touching core behavior: `cargo test -p integration-test` passes
 
