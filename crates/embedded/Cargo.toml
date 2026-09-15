@@ -66,7 +66,7 @@ libp2p = [
     "defra-p2p-adapter/libp2p",
     "dep:libp2p",
 ]
-iroh = ["p2p/iroh-transport", "p2p/kms", "defra-p2p-adapter/iroh"]
+iroh = ["p2p/iroh-transport", "p2p/kms", "defra-p2p-adapter/iroh", "defra-p2p-adapter/kms"]
 
 [dev-dependencies]
 base64 = { workspace = true }

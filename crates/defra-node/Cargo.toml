@@ -27,6 +27,7 @@ p2p = [
     "p2p/iroh-transport",
     "p2p/kms",
     "defra-p2p-adapter/iroh",
+    "defra-p2p-adapter/kms",
     "defra-p2p-adapter/native",
 ]
 # Native host (tokio, event channel). Default-on.
@@ -51,7 +52,6 @@ bench = false
 
 [dependencies]
 db = { path = "../db", default-features = false }
-replication-filter = { path = "../replication-filter" }
 storage = { path = "../storage" }
 query = { path = "../query" }
 events = { path = "../events" }

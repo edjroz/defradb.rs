@@ -10,22 +10,28 @@ use crate::config::{Config, DatastoreType};
 use crate::error::Result;
 
 /// Tracks spawned P2P background tasks for graceful shutdown.
-pub(super) struct P2PTasks {
-    /// Coordinator-owned background replication shutdown.
-    pub coordinator: p2p::sync::SyncShutdownHandle,
-    /// P2P host event loop task
-    pub host_task: JoinHandle<()>,
-    /// Replication loop task (processes incoming blocks)
-    pub replication_task: JoinHandle<()>,
-    /// Host event handler task (processes P2P events through coordinator)
-    pub event_handler_task: Option<JoinHandle<()>>,
-    /// Records push failures for retry
-    pub failure_recorder_task: JoinHandle<()>,
-    /// Periodically retries failed doc pushes with exponential backoff
-    pub retry_loop_task: JoinHandle<()>,
-    /// Relay server hosted next to the iroh endpoint
-    #[cfg(feature = "iroh-relay-server")]
-    pub iroh_relay_server: Option<p2p::iroh::IrohRelayServer>,
+pub(super) enum P2PTasks {
+    Libp2p {
+        /// Coordinator-owned background replication shutdown.
+        coordinator: p2p::sync::SyncShutdownHandle,
+        /// P2P host event loop task
+        host_task: JoinHandle<()>,
+        /// Replication loop task (processes incoming blocks)
+        replication_task: JoinHandle<()>,
+        /// Host event handler task (processes P2P events through coordinator)
+        event_handler_task: Option<JoinHandle<()>>,
+        /// Records push failures for retry
+        failure_recorder_task: JoinHandle<()>,
+        /// Periodically retries failed doc pushes with exponential backoff
+        retry_loop_task: JoinHandle<()>,
+    },
+    #[cfg(feature = "iroh")]
+    Iroh {
+        peer: defra_p2p_adapter::IrohPeerShutdown,
+        /// Relay server hosted next to the iroh endpoint
+        #[cfg(feature = "iroh-relay-server")]
+        relay_server: Option<p2p::iroh::IrohRelayServer>,
+    },
 }
 
 /// Servers and background tasks produced by store/server initialization.

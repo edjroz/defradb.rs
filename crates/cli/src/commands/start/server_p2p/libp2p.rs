@@ -453,15 +453,13 @@ impl Node {
 
         Ok(P2PSetup {
             host_handle: Some(handle),
-            p2p_tasks: Some(P2PTasks {
+            p2p_tasks: Some(P2PTasks::Libp2p {
                 coordinator: coordinator.shutdown_handle(),
                 host_task,
                 replication_task,
                 event_handler_task,
                 failure_recorder_task,
                 retry_loop_task,
-                #[cfg(feature = "iroh-relay-server")]
-                iroh_relay_server: None,
             }),
             mutator: broadcast_mutator,
             http_adapter: Some(manage_controller.clone()),
