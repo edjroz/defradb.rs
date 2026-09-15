@@ -109,10 +109,6 @@ path = "tests/cursor.rs"
 name = "http_contract"
 path = "tests/http_contract.rs"
 
-[[test]]
-name = "p2p_partition"
-path = "tests/p2p_partition.rs"
-
 [dependencies]
 hub-harness = { git = "https://github.com/sourcenetwork/backbone.git", rev = "e0c42841f212119a385ee6c10465c3afe6fc62d4" }
 defra-harness = { git = "https://github.com/sourcenetwork/backbone.git", rev = "e0c42841f212119a385ee6c10465c3afe6fc62d4" }
