@@ -6,7 +6,6 @@
 mod authorization;
 mod batch;
 mod collection;
-mod collection_commit;
 pub mod composite;
 mod composite_fields;
 mod composite_heads;
@@ -19,13 +18,13 @@ mod encryption;
 pub(crate) mod error;
 pub mod hook;
 mod lww;
+mod protected_update;
 mod recovery;
 pub mod se_merge;
 mod signature;
 
 pub use error::MergeError;
 pub(crate) use error::{CounterMergeResult, LwwMergeResult};
-pub(crate) use signature::verify_signature_data;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

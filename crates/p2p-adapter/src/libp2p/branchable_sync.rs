@@ -39,7 +39,7 @@ pub(super) async fn wait_for_heads<B: blockstore::Blockstore>(
                         ));
                     }
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
+                _ = n0_future::time::sleep(std::time::Duration::from_millis(100)) => {}
             }
         }
     })

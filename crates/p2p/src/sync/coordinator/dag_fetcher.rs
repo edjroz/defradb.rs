@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use blockstore::Blockstore;
 use cid::Cid;
+use n0_future::time::Instant;
 use tokio::sync::mpsc;
-use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
 
 use super::dag_context::DagFetchContext;
@@ -155,7 +155,7 @@ pub async fn poll_fetch_dag<B: Blockstore + 'static, T: P2PTransport>(
                 backoff_ms = backoff.as_millis() as u64,
                 "DAG fetch incomplete, retrying after backoff"
             );
-            tokio::time::sleep(backoff).await;
+            n0_future::time::sleep(backoff).await;
         }
 
         let Some(_permits) = limiter.acquire(&context.source_peer).await else {
@@ -541,7 +541,7 @@ async fn poll_fetch_rooted_car<B: Blockstore, T: P2PTransport>(
 
     let mut completion = context.track_rooted_car(*root_cid, source_peer);
 
-    match tokio::time::timeout(
+    match n0_future::time::timeout(
         Duration::from_secs(10),
         transport.send_car_request(source_peer, *root_cid),
     )
@@ -575,7 +575,7 @@ async fn poll_fetch_rooted_car<B: Blockstore, T: P2PTransport>(
     }
 
     if let Some(receiver) = completion.as_mut() {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let deadline = n0_future::time::Instant::now() + Duration::from_secs(10);
         loop {
             if !context.is_current() {
                 context.cancel_rooted_car_tracking(*root_cid);
@@ -592,10 +592,10 @@ async fn poll_fetch_rooted_car<B: Blockstore, T: P2PTransport>(
                     }
                     break;
                 },
-                _ = tokio::time::sleep_until(deadline) => break,
-                _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+                _ = n0_future::time::sleep_until(deadline) => break,
+                _ = n0_future::time::sleep(Duration::from_millis(100)) => {}
             }
-            if tokio::time::Instant::now() >= deadline {
+            if n0_future::time::Instant::now() >= deadline {
                 break;
             }
         }
@@ -606,7 +606,7 @@ async fn poll_fetch_rooted_car<B: Blockstore, T: P2PTransport>(
             if remaining < initially_missing {
                 return observe(remaining);
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            n0_future::time::sleep(Duration::from_millis(100)).await;
         }
     }
     context.cancel_rooted_car_tracking(*root_cid);
@@ -714,10 +714,10 @@ async fn poll_fetch_rooted_provider<B: Blockstore, T: P2PTransport>(
                         }
                     }
                 }
-                _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+                _ = n0_future::time::sleep(Duration::from_millis(100)) => {}
             }
         } else {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            n0_future::time::sleep(Duration::from_millis(100)).await;
         }
     }
     context.cancel_block_sync_tracking(query_id);
@@ -917,10 +917,10 @@ async fn poll_fetch_blocks<B: Blockstore, T: P2PTransport>(
                         }
                     }
                 }
-                _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+                _ = n0_future::time::sleep(Duration::from_millis(100)) => {}
             }
         } else {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            n0_future::time::sleep(Duration::from_millis(100)).await;
         }
     }
 

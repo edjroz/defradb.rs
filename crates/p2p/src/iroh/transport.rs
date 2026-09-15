@@ -151,7 +151,8 @@ impl IrohTransport {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl P2PTransport for IrohTransport {
     type ResponseToken = iroh::endpoint::SendStream;
 
@@ -211,13 +212,13 @@ impl P2PTransport for IrohTransport {
                 if peers.contains(peer_id) {
                     return Ok(());
                 }
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                n0_future::time::sleep(Duration::from_millis(50)).await;
             }
         };
         tokio::select! {
             biased;
             _ = self.command_tx.closed() => Err(Error::ChannelSend),
-            result = tokio::time::timeout(timeout, wait_for_peer) => {
+            result = n0_future::time::timeout(timeout, wait_for_peer) => {
                 result.unwrap_or_else(|_| Err(Error::ConnectionTimeout(peer_id.to_string())))
             }
         }
@@ -583,7 +584,7 @@ impl P2PTransport for IrohTransport {
     }
 
     async fn shutdown(&self) -> Result<()> {
-        let send_started = std::time::Instant::now();
+        let send_started = web_time::Instant::now();
         let (tx, rx) = oneshot::channel();
         self.command_tx
             .send(IrohCommand::Shutdown { reply: tx })
@@ -591,7 +592,7 @@ impl P2PTransport for IrohTransport {
             .map_err(|_| Error::ChannelSend)?;
         let send_elapsed = send_started.elapsed();
 
-        let reply_started = std::time::Instant::now();
+        let reply_started = web_time::Instant::now();
         let result = rx.await.map_err(|_| Error::ChannelReceive)?;
         tracing::warn!(
             send_elapsed_ms = send_elapsed.as_millis(),
@@ -613,7 +614,7 @@ mod tests {
     use std::time::Duration;
 
     use identity::Identity as _;
-    use tokio::time::timeout;
+    use n0_future::time::timeout;
 
     use crate::iroh::{spawn_endpoint, IrohDiscoveryConfig, IrohEndpointConfig};
     use crate::message::{
@@ -811,18 +812,18 @@ mod tests {
     }
 
     async fn poll_until_disconnected(transport: &IrohTransport, peer_id: &PeerId) {
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = web_time::Instant::now() + Duration::from_secs(5);
         loop {
             let peers = transport.connected_peers().await.unwrap_or_default();
             if !peers.iter().any(|p| p.as_str() == peer_id.as_str()) {
                 return;
             }
             assert!(
-                std::time::Instant::now() < deadline,
+                web_time::Instant::now() < deadline,
                 "timed out waiting for disconnection from {}",
                 peer_id
             );
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            n0_future::time::sleep(Duration::from_millis(50)).await;
         }
     }
 

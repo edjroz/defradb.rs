@@ -1,6 +1,6 @@
 //! Peer lifecycle, queries, and maintenance operations.
 
-use std::time::Instant;
+use web_time::Instant;
 
 use cid::Cid;
 

@@ -23,7 +23,8 @@ pub trait CollectionLookup: Send + Sync {
 }
 
 /// Trait for syncing collection versions via Bitswap.
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait VersionSyncer: Send + Sync {
     async fn sync_versions(
         &self,
@@ -49,24 +50,24 @@ pub struct P2PAdapter<B: Blockstore + 'static> {
 async fn wait_for_branchable_merges(
     sub: &mut events::Subscription,
     collection_id: &str,
-    start: std::time::Instant,
+    start: web_time::Instant,
     overall_timeout: std::time::Duration,
     idle_timeout: std::time::Duration,
 ) {
     let mut saw_merge = false;
-    let mut last_activity = std::time::Instant::now();
+    let mut last_activity = web_time::Instant::now();
 
     while start.elapsed() < overall_timeout {
         if last_activity.elapsed() > idle_timeout {
             break;
         }
 
-        match tokio::time::timeout(std::time::Duration::from_millis(100), sub.recv()).await {
+        match n0_future::time::timeout(std::time::Duration::from_millis(100), sub.recv()).await {
             Ok(Some(msg)) => {
                 if let Some(data) = msg.as_merge_complete() {
                     if data.collection_id == collection_id {
                         saw_merge = true;
-                        last_activity = std::time::Instant::now();
+                        last_activity = web_time::Instant::now();
                     }
                 }
             }
@@ -237,7 +238,8 @@ impl<B: Blockstore + 'static> P2PAdapter<B> {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<B: Blockstore + 'static> P2POperations for P2PAdapter<B> {
     async fn sync_status(&self) -> P2PResult<serde_json::Value> {
         let Some(coordinator) = self.sync_coordinator.as_ref() else {
@@ -575,7 +577,7 @@ impl<B: Blockstore + 'static> P2POperations for P2PAdapter<B> {
                     "Replaying existing docs for collections requiring replay"
                 );
 
-                tokio::spawn(async move {
+                n0_future::task::spawn(async move {
                     if let Err(error) = push_pusher
                         .push_existing_docs(
                             &p2p::transport::PeerId::from(peer_id),
@@ -914,7 +916,7 @@ impl<B: Blockstore + 'static> P2POperations for P2PAdapter<B> {
         // below gets whatever the reply wait leaves rather than a second full
         // budget.
         let overall_timeout = timeout.unwrap_or(crate::doc_sync::DEFAULT_DOC_SYNC_TIMEOUT);
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         let doc_set: HashSet<String> = doc_ids.iter().cloned().collect();
 
         let coord = self
@@ -949,7 +951,8 @@ impl<B: Blockstore + 'static> P2POperations for P2PAdapter<B> {
         let mut pending_heads = unmerged_heads(coord.blockstore().as_ref(), heads).await;
 
         while !pending_heads.is_empty() && start.elapsed() < overall_timeout {
-            match tokio::time::timeout(std::time::Duration::from_millis(100), sub.recv()).await {
+            match n0_future::time::timeout(std::time::Duration::from_millis(100), sub.recv()).await
+            {
                 Ok(Some(msg)) => {
                     if let Some(data) = msg.as_merge_complete() {
                         if doc_set.contains(&data.doc_id) {
@@ -987,7 +990,7 @@ impl<B: Blockstore + 'static> P2POperations for P2PAdapter<B> {
         let mut sub = event_bus.subscribe(&[events::EventName::MergeComplete]);
         let overall_timeout = std::time::Duration::from_secs(30);
         let idle_timeout = std::time::Duration::from_secs(3);
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         let collection_id_string = collection_id.to_string();
 
         // Go-compatible pubsub_rpc path when coordinator is wired (#828).
@@ -1046,7 +1049,7 @@ impl<B: Blockstore + 'static> P2POperations for P2PAdapter<B> {
             let request_clone = request.clone();
             let handle = self.handle.clone();
             let peer_id = *peer_id;
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 if let Err(error) = handle
                     .send_branchable_sync_request(peer_id, request_clone)
                     .await
@@ -1132,7 +1135,8 @@ mod tests {
 
     struct FixedNac(NacOutcome);
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl db::NodeAccessChecker for FixedNac {
         async fn check_node_access(&self, permission: acp::nac::NodePermission) -> db::Result<()> {
             match self.0 {
@@ -1202,7 +1206,8 @@ mod tests {
     #[derive(Debug)]
     struct NoopBlockstore;
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl Blockstore for NoopBlockstore {
         async fn get(&self, _cid: &cid::Cid) -> blockstore::Result<Option<bytes::Bytes>> {
             Ok(None)
@@ -1238,7 +1243,7 @@ mod tests {
     }
 
     async fn wait_until_connected(handle: &P2PHostHandle, peer_id: libp2p::PeerId) {
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         loop {
             if handle
                 .connected_peers()
@@ -1252,12 +1257,12 @@ mod tests {
                 start.elapsed() < std::time::Duration::from_secs(5),
                 "timed out waiting for connection to {peer_id}"
             );
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            n0_future::time::sleep(std::time::Duration::from_millis(50)).await;
         }
     }
 
     async fn wait_until_disconnected(handle: &P2PHostHandle, peer_id: libp2p::PeerId) {
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         loop {
             if !handle
                 .connected_peers()
@@ -1271,7 +1276,7 @@ mod tests {
                 start.elapsed() < std::time::Duration::from_secs(5),
                 "timed out waiting for disconnection from {peer_id}"
             );
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            n0_future::time::sleep(std::time::Duration::from_millis(50)).await;
         }
     }
 
@@ -1355,8 +1360,8 @@ mod tests {
             .await
             .unwrap();
 
-        let task_a = tokio::spawn(host_a.run());
-        let task_b = tokio::spawn(host_b.run());
+        let task_a = n0_future::task::spawn(host_a.run());
+        let task_b = n0_future::task::spawn(host_b.run());
         connect_hosts(&handle_a, &handle_b).await;
 
         let adapter = identity_test_adapter(handle_a.clone());
@@ -1384,7 +1389,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let replacement_task = tokio::spawn(replacement_host.run());
+        let replacement_task = n0_future::task::spawn(replacement_host.run());
         assert_eq!(replacement_handle.local_peer_id_cached(), responder_peer);
         connect_hosts(&handle_a, &replacement_handle).await;
 
@@ -1406,8 +1411,8 @@ mod tests {
             p2p::host::P2PHost::new(BitswapStoreAdapter::new(Arc::new(NoopBlockstore)))
                 .await
                 .unwrap();
-        let task_c = tokio::spawn(host_c.run());
-        let task_d = tokio::spawn(host_d.run());
+        let task_c = n0_future::task::spawn(host_c.run());
+        let task_d = n0_future::task::spawn(host_d.run());
         connect_hosts(&handle_c, &handle_d).await;
         let adapter = identity_test_adapter(handle_c.clone());
         let peer = TransportPeerId::new(handle_d.local_peer_id_cached().to_string()).unwrap();
@@ -1434,8 +1439,8 @@ mod tests {
                 .await
                 .expect("host b");
 
-        tokio::spawn(host_a.run());
-        tokio::spawn(host_b.run());
+        n0_future::task::spawn(host_a.run());
+        n0_future::task::spawn(host_b.run());
 
         let adapter = P2PAdapter::<NoopBlockstore> {
             handle: handle_a.clone(),

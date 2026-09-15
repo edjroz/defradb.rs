@@ -288,7 +288,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl P2PTransport for TestTransport {
         type ResponseToken = ();
 
@@ -583,7 +584,7 @@ mod tests {
             .await
             .expect("bitswap block received");
 
-        match tokio::time::timeout(Duration::from_secs(1), events.recv())
+        match n0_future::time::timeout(Duration::from_secs(1), events.recv())
             .await
             .expect("event")
             .expect("channel open")
@@ -622,7 +623,7 @@ mod tests {
             .try_acquire_nowait(&cid)
             .expect("test owns CID");
 
-        tokio::time::timeout(
+        n0_future::time::timeout(
             Duration::from_millis(100),
             coordinator.handle_bitswap_block_received(QueryId(42), cid, block.clone()),
         )
@@ -667,7 +668,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let now = tokio::time::Instant::now();
+        let now = n0_future::time::Instant::now();
         assert!(coordinator
             .manager()
             .try_claim_pending_dag_dispatch(&root, now));
@@ -684,7 +685,7 @@ mod tests {
         tokio::time::advance(Duration::from_secs(4)).await;
         assert!(coordinator
             .manager()
-            .try_claim_pending_dag_dispatch(&root, tokio::time::Instant::now()));
+            .try_claim_pending_dag_dispatch(&root, n0_future::time::Instant::now()));
     }
 
     /// #1116 stage 2 (#1112): registration and failed completion only update
@@ -721,7 +722,7 @@ mod tests {
         );
         let due = coordinator
             .manager()
-            .claim_due_pending_dag_retries(tokio::time::Instant::now());
+            .claim_due_pending_dag_retries(n0_future::time::Instant::now());
         assert_eq!(due.len(), 1);
         coordinator.dispatch_pending_dag_fetch_for_test(due[0].0, &due[0].1);
         match events.try_recv().expect("clock-driven DagNeedsFetch event") {
@@ -757,7 +758,7 @@ mod tests {
         tokio::time::advance(std::time::Duration::from_secs(4)).await;
         let due = coordinator
             .manager()
-            .claim_due_pending_dag_retries(tokio::time::Instant::now());
+            .claim_due_pending_dag_retries(n0_future::time::Instant::now());
         assert_eq!(due.len(), 1);
         for (due_root, dag) in &due {
             coordinator.dispatch_pending_dag_fetch_for_test(*due_root, dag);
@@ -820,7 +821,7 @@ mod tests {
         );
         let initial_due = coordinator
             .manager()
-            .claim_due_pending_dag_retries(tokio::time::Instant::now());
+            .claim_due_pending_dag_retries(n0_future::time::Instant::now());
         assert_eq!(initial_due.len(), 2);
         for (due_root, dag) in &initial_due {
             coordinator.dispatch_pending_dag_fetch_for_test(*due_root, dag);
@@ -849,7 +850,7 @@ mod tests {
         assert!(
             coordinator
                 .manager()
-                .claim_due_pending_dag_retries(tokio::time::Instant::now())
+                .claim_due_pending_dag_retries(n0_future::time::Instant::now())
                 .is_empty(),
             "neither root is due before the clock rung elapses"
         );
@@ -879,7 +880,7 @@ mod tests {
         tokio::time::advance(std::time::Duration::from_secs(4)).await;
         let due = coordinator
             .manager()
-            .claim_due_pending_dag_retries(tokio::time::Instant::now());
+            .claim_due_pending_dag_retries(n0_future::time::Instant::now());
         assert!(
             due.iter().any(|(cid, _)| *cid == root1_cid),
             "root1 should be due after its second rung elapses"

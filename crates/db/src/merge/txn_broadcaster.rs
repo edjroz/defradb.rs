@@ -30,7 +30,8 @@ impl<B: Blockstore + Send + Sync + 'static, T: P2PTransport + 'static> SyncTxnBr
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<B, T> TxnBroadcaster for SyncTxnBroadcaster<B, T>
 where
     B: Blockstore + Send + Sync + 'static,

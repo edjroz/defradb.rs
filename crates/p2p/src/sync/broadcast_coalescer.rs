@@ -27,8 +27,8 @@ struct BroadcastKey {
 struct PendingBroadcast {
     broadcast: Mutex<PushLogBroadcast>,
     version: Mutex<(u64, Cid)>,
-    started_at: tokio::time::Instant,
-    last_update: Mutex<tokio::time::Instant>,
+    started_at: n0_future::time::Instant,
+    last_update: Mutex<n0_future::time::Instant>,
     result: Mutex<Option<SharedResult>>,
     cancelled: AtomicBool,
     notify: Notify,
@@ -126,12 +126,12 @@ impl BroadcastCoalescer {
                     if incoming_version > *current_version {
                         *pending.broadcast.lock() = candidate;
                         *current_version = incoming_version;
-                        *pending.last_update.lock() = tokio::time::Instant::now();
+                        *pending.last_update.lock() = n0_future::time::Instant::now();
                     }
                     self.coalesced.fetch_add(1, Ordering::Relaxed);
                     (Arc::clone(pending), false)
                 } else {
-                    let now = tokio::time::Instant::now();
+                    let now = n0_future::time::Instant::now();
                     let pending = Arc::new(PendingBroadcast {
                         broadcast: Mutex::new(candidate),
                         version: Mutex::new(incoming_version),
@@ -198,16 +198,16 @@ impl BroadcastCoalescer {
 }
 
 pub(super) async fn wait_for_quiet(
-    last_update: &Mutex<tokio::time::Instant>,
-    started_at: tokio::time::Instant,
+    last_update: &Mutex<n0_future::time::Instant>,
+    started_at: n0_future::time::Instant,
     window: Duration,
     max_delay: Duration,
 ) {
     let max_deadline = started_at + max_delay;
     loop {
         let deadline = (*last_update.lock() + window).min(max_deadline);
-        tokio::time::sleep_until(deadline).await;
-        let now = tokio::time::Instant::now();
+        n0_future::time::sleep_until(deadline).await;
+        let now = n0_future::time::Instant::now();
         if now >= max_deadline || now >= *last_update.lock() + window {
             return;
         }
@@ -301,7 +301,7 @@ mod tests {
             let coalescer = Arc::clone(&coalescer);
             let sends = Arc::clone(&sends);
             let sent_cid = Arc::clone(&sent_cid);
-            tasks.push(tokio::spawn(async move {
+            tasks.push(n0_future::task::spawn(async move {
                 coalescer
                     .run(update, move |latest| async move {
                         sends.fetch_add(1, Ordering::Relaxed);
@@ -327,7 +327,7 @@ mod tests {
         let leader = {
             let coalescer = Arc::clone(&coalescer);
             let sends = Arc::clone(&sends);
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 coalescer
                     .run(broadcast(b"1"), move |_| async move {
                         sends.fetch_add(1, Ordering::Relaxed);
@@ -341,7 +341,7 @@ mod tests {
         let follower = {
             let coalescer = Arc::clone(&coalescer);
             let sends = Arc::clone(&sends);
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 coalescer
                     .run(broadcast(b"second"), move |_| async move {
                         sends.fetch_add(1, Ordering::Relaxed);
@@ -367,7 +367,7 @@ mod tests {
         let leader = {
             let coalescer = Arc::clone(&coalescer);
             let sends = Arc::clone(&sends);
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 coalescer
                     .run(broadcast(b"newer"), move |_| async move {
                         sends.fetch_add(1, Ordering::Relaxed);
@@ -380,7 +380,7 @@ mod tests {
         tokio::time::advance(window / 2).await;
         let follower = {
             let coalescer = Arc::clone(&coalescer);
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 coalescer
                     .run(broadcast(b"old"), |_| async { unreachable!() })
                     .await
@@ -406,7 +406,7 @@ mod tests {
         let leader = {
             let coalescer = Arc::clone(&coalescer);
             let sends = Arc::clone(&sends);
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 coalescer
                     .run(broadcast(b"1"), move |_| async move {
                         sends.fetch_add(1, Ordering::Relaxed);
@@ -421,7 +421,7 @@ mod tests {
         for seed in [b"22".as_slice(), b"333", b"4444", b"55555"] {
             tokio::time::advance(Duration::from_millis(200)).await;
             let coalescer = Arc::clone(&coalescer);
-            followers.push(tokio::spawn(async move {
+            followers.push(n0_future::task::spawn(async move {
                 coalescer
                     .run(broadcast(seed), |_| async { unreachable!() })
                     .await
@@ -460,7 +460,7 @@ mod tests {
         let coalescer = Arc::new(BroadcastCoalescer::with_window(Duration::from_millis(200)));
         let leader = {
             let coalescer = Arc::clone(&coalescer);
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 coalescer
                     .run(broadcast(b"leader"), |_| async { unreachable!() })
                     .await
@@ -476,7 +476,7 @@ mod tests {
             let coalescer = Arc::clone(&coalescer);
             let sends = Arc::clone(&sends);
             let sent_cid = Arc::clone(&sent_cid);
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 coalescer
                     .run(broadcast(b"follower"), move |latest| async move {
                         sends.fetch_add(1, Ordering::Relaxed);
@@ -503,7 +503,7 @@ mod tests {
         leader.abort();
         assert!(leader.await.unwrap_err().is_cancelled());
         assert_eq!(
-            tokio::time::timeout(Duration::from_secs(1), follower)
+            n0_future::time::timeout(Duration::from_secs(1), follower)
                 .await
                 .expect("replacement leader must complete")
                 .unwrap()
@@ -521,7 +521,7 @@ mod tests {
         let coalescer = Arc::new(BroadcastCoalescer::with_window(Duration::from_millis(250)));
         let leader = {
             let coalescer = Arc::clone(&coalescer);
-            tokio::spawn(async move {
+            n0_future::task::spawn(async move {
                 coalescer
                     .run(broadcast(b"leader"), |_| async {
                         Ok(BroadcastResult::Success)
@@ -536,13 +536,13 @@ mod tests {
         let mut followers = Vec::new();
         for seed in 0..FOLLOWERS {
             let coalescer = Arc::clone(&coalescer);
-            followers.push(tokio::spawn(async move {
+            followers.push(n0_future::task::spawn(async move {
                 coalescer
                     .run(broadcast(&seed.to_le_bytes()), |_| async { unreachable!() })
                     .await
             }));
         }
-        tokio::time::timeout(Duration::from_secs(1), async {
+        n0_future::time::timeout(Duration::from_secs(1), async {
             while coalescer.coalesced() < FOLLOWERS as u64 {
                 tokio::task::yield_now().await;
             }
@@ -553,7 +553,7 @@ mod tests {
         assert_eq!(leader.await.unwrap().unwrap(), BroadcastResult::Success);
         for follower in followers {
             assert_eq!(
-                tokio::time::timeout(Duration::from_secs(1), follower)
+                n0_future::time::timeout(Duration::from_secs(1), follower)
                     .await
                     .expect("follower must wake")
                     .unwrap()

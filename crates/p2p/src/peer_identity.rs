@@ -9,7 +9,8 @@ const IROH_IDENTITY_CACHE_TTL: std::time::Duration = std::time::Duration::from_s
 #[cfg(feature = "iroh-transport")]
 const IROH_IDENTITY_CACHE_CAPACITY: usize = 1024;
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait PeerIdentityResolver: Send + Sync {
     async fn resolve(&self, peer_id: &PeerId) -> Option<identity::Did>;
 }
@@ -28,7 +29,8 @@ impl HandlePeerIdentityResolver {
 }
 
 #[cfg(feature = "libp2p-transport")]
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl PeerIdentityResolver for HandlePeerIdentityResolver {
     async fn resolve(&self, peer_id: &PeerId) -> Option<identity::Did> {
         let peer_id = peer_id.as_str().parse::<libp2p::PeerId>().ok()?;
@@ -51,7 +53,7 @@ pub struct IrohPeerIdentityResolver {
 #[cfg(feature = "iroh-transport")]
 struct CachedIrohPeerIdentity {
     did: identity::Did,
-    verified_at: std::time::Instant,
+    verified_at: web_time::Instant,
 }
 
 #[cfg(feature = "iroh-transport")]
@@ -95,7 +97,7 @@ impl IrohPeerIdentityState {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Option<identity::Did>>,
     {
-        if let Some(did) = self.cache.lock().get(peer_id, std::time::Instant::now()) {
+        if let Some(did) = self.cache.lock().get(peer_id, web_time::Instant::now()) {
             tracing::trace!(%peer_id, "using cached authenticated Iroh peer identity");
             return Some(did);
         }
@@ -122,7 +124,7 @@ impl IrohPeerIdentityState {
         if let Some(did) = result.as_ref() {
             self.cache
                 .lock()
-                .insert(peer_id.clone(), did.clone(), std::time::Instant::now());
+                .insert(peer_id.clone(), did.clone(), web_time::Instant::now());
         }
         let mut in_flight = self.in_flight.lock().await;
         if in_flight
@@ -146,7 +148,7 @@ impl IrohPeerIdentityCache {
         }
     }
 
-    fn get(&mut self, peer_id: &PeerId, now: std::time::Instant) -> Option<identity::Did> {
+    fn get(&mut self, peer_id: &PeerId, now: web_time::Instant) -> Option<identity::Did> {
         let entry = self.entries.peek(peer_id)?;
         if now.duration_since(entry.verified_at) >= self.ttl {
             self.entries.pop(peer_id);
@@ -155,7 +157,7 @@ impl IrohPeerIdentityCache {
         Some(entry.did.clone())
     }
 
-    fn insert(&mut self, peer_id: PeerId, did: identity::Did, now: std::time::Instant) {
+    fn insert(&mut self, peer_id: PeerId, did: identity::Did, now: web_time::Instant) {
         self.entries.put(
             peer_id,
             CachedIrohPeerIdentity {
@@ -177,7 +179,8 @@ impl IrohPeerIdentityResolver {
 }
 
 #[cfg(feature = "iroh-transport")]
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl PeerIdentityResolver for IrohPeerIdentityResolver {
     async fn resolve(&self, peer_id: &PeerId) -> Option<identity::Did> {
         self.state
@@ -197,7 +200,8 @@ impl PeerIdentityResolver for IrohPeerIdentityResolver {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AnonymousResolver;
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl PeerIdentityResolver for AnonymousResolver {
     async fn resolve(&self, _peer_id: &PeerId) -> Option<identity::Did> {
         None
@@ -214,7 +218,7 @@ mod tests {
 
     #[test]
     fn iroh_identity_cache_is_positive_bounded_and_expiring() {
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         let ttl = std::time::Duration::from_secs(10);
         let mut cache = IrohPeerIdentityCache::new(ttl, 2);
         let peer_a = PeerId::new("peer-a".to_string());

@@ -4,7 +4,9 @@ use std::sync::Arc;
 use super::{shutdown_tracked_tasks, spawn_task, SpawnedTasks};
 
 fn registry() -> SpawnedTasks {
-    Arc::new(parking_lot::Mutex::new(Some(tokio::task::JoinSet::new())))
+    Arc::new(parking_lot::Mutex::new(Some(
+        crate::tracked_task::TrackedTaskSet::default(),
+    )))
 }
 
 fn spawn(tasks: &SpawnedTasks, future: impl Future<Output = ()> + Send + 'static) {

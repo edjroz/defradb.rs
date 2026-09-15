@@ -382,7 +382,7 @@ mod tests {
 
         // Spawn second caller that waits
         let queue_clone = queue.clone();
-        let waiter = tokio::spawn(async move {
+        let waiter = n0_future::task::spawn(async move {
             let rx = queue_clone.try_acquire(&cid).await.unwrap_err();
             // Wait for notification
             rx.await.unwrap();
@@ -390,13 +390,13 @@ mod tests {
         });
 
         // Give the waiter time to register
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        n0_future::time::sleep(Duration::from_millis(10)).await;
 
         // Explicitly release guard
         guard.release().await;
 
         // Waiter should complete
-        let result = tokio::time::timeout(Duration::from_millis(100), waiter).await;
+        let result = n0_future::time::timeout(Duration::from_millis(100), waiter).await;
         assert!(result.is_ok(), "Waiter should be notified");
         assert!(
             result.unwrap().unwrap(),
@@ -416,21 +416,21 @@ mod tests {
         let mut handles = Vec::new();
         for _ in 0..5 {
             let queue_clone = queue.clone();
-            handles.push(tokio::spawn(async move {
+            handles.push(n0_future::task::spawn(async move {
                 let rx = queue_clone.try_acquire(&cid).await.unwrap_err();
                 rx.await.unwrap();
             }));
         }
 
         // Give waiters time to register
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        n0_future::time::sleep(Duration::from_millis(10)).await;
 
         // Explicitly release guard
         guard.release().await;
 
         // All waiters should complete
         for handle in handles {
-            let result = tokio::time::timeout(Duration::from_millis(100), handle).await;
+            let result = n0_future::time::timeout(Duration::from_millis(100), handle).await;
             assert!(result.is_ok(), "All waiters should be notified");
         }
     }
@@ -531,20 +531,20 @@ mod tests {
 
         // Create a waiter that will actually wait
         let queue_clone = queue.clone();
-        let waiter = tokio::spawn(async move {
+        let waiter = n0_future::task::spawn(async move {
             let rx = queue_clone.try_acquire(&cid).await.unwrap_err();
             rx.await.unwrap();
             true
         });
 
         // Give waiter time to register
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        n0_future::time::sleep(Duration::from_millis(10)).await;
 
         // Release - should notify the waiting task even though one was cancelled
         guard.release().await;
 
         // Active waiter should still be notified
-        let result = tokio::time::timeout(Duration::from_millis(100), waiter).await;
+        let result = n0_future::time::timeout(Duration::from_millis(100), waiter).await;
         assert!(result.is_ok(), "Active waiter should be notified");
         assert!(
             result.unwrap().unwrap(),

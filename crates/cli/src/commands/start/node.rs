@@ -23,6 +23,9 @@ pub(super) struct P2PTasks {
     pub failure_recorder_task: JoinHandle<()>,
     /// Periodically retries failed doc pushes with exponential backoff
     pub retry_loop_task: JoinHandle<()>,
+    /// Relay server hosted next to the iroh endpoint
+    #[cfg(feature = "iroh-relay-server")]
+    pub iroh_relay_server: Option<p2p::iroh::IrohRelayServer>,
 }
 
 /// Servers and background tasks produced by store/server initialization.

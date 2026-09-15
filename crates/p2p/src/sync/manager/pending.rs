@@ -2,7 +2,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use cid::Cid;
 
@@ -58,7 +59,7 @@ pub struct PendingDag {
     /// Every dispatch site must win `try_claim_pending_dag_dispatch`,
     /// which advances this by `retry_backoff(dispatches)` — the receiver's
     /// re-arm pacing (#1112 inbound half, #1116 stage 2).
-    pub next_retry_at: tokio::time::Instant,
+    pub next_retry_at: n0_future::time::Instant,
     /// Fetch dispatches claimed for this root (drives the backoff rung).
     pub dispatches: u32,
     /// Transient local contention; discarded with this bounded pending root.

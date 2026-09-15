@@ -6,6 +6,7 @@
 //! 3. Config file (config.yaml in rootdir)
 //! 4. Default values
 
+mod iroh_relay_server;
 mod secret_file;
 mod sections;
 mod types;
@@ -19,6 +20,7 @@ use crate::cli::Cli;
 use crate::error::{Error, Result};
 
 // Re-export types and sections for external use
+pub use iroh_relay_server::{IrohRelayServerConfig, IrohRelayServerTlsConfig};
 pub use sections::{
     AcpConfig, ApiConfig, DatastoreConfig, EmbeddingConfig, KeyringConfig, LogConfig, NetConfig,
 };
@@ -275,6 +277,10 @@ impl Config {
         }
         if !self.api.privkey_path.is_empty() && !Path::new(&self.api.privkey_path).is_absolute() {
             self.api.privkey_path = rootdir.join(&self.api.privkey_path).display().to_string();
+        }
+
+        if let Some(relay_server) = &mut self.net.iroh_relay_server {
+            relay_server.resolve_paths(rootdir);
         }
     }
 

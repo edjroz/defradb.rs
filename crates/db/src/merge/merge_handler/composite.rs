@@ -255,6 +255,13 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
                     return Ok(CompositeMergePreparation::Complete(outcome));
                 }
             }
+
+            if let Some(outcome) = self
+                .check_protected_update(cid, block, payload, doc_id, collection.schema())
+                .await?
+            {
+                return Ok(CompositeMergePreparation::Complete(outcome));
+            }
         }
 
         Ok(CompositeMergePreparation::Ready(collection.map(Box::new)))
@@ -385,7 +392,6 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
                             &payload,
                             metadata,
                             from_collection,
-                            is_root,
                             &doc_id,
                             collection.map(|collection| *collection),
                         )
@@ -408,7 +414,6 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
         payload: &defra_core::block::CompositeDeltaPayload,
         metadata: &BlockMetadata<'_>,
         from_collection: bool,
-        is_root: bool,
         doc_id_str: &str,
         collection_lookup: Option<Collection>,
     ) -> std::result::Result<MergeOutcome, MergeError> {
@@ -546,55 +551,7 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
                         error
                     ))
                 })?;
-
-                // An ingress is the document's first holder, so no peer will
-                // ever send the collection commit that puts it in a branchable
-                // collection's DAG. Writing it in this transaction is what
-                // makes the document and its place in the collection land
-                // together: a failure here discards the merge, and the resend
-                // that follows is a merge again rather than a no-op.
-                let commit_views = txn
-                    .blockstore()
-                    .and_then(|blockstore| Ok((blockstore, txn.headstore()?)));
-                let collection_commit = match commit_views {
-                    Ok((blockstore, headstore)) => {
-                        match self
-                            .author_collection_commit(
-                                &blockstore,
-                                &headstore,
-                                &context,
-                                &state,
-                                is_root,
-                            )
-                            .await
-                        {
-                            Ok(commit) => commit,
-                            Err(error) => {
-                                let _ = txn.force_discard();
-                                return Err(error);
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        let _ = txn.force_discard();
-                        return Err(MergeError::Database(error));
-                    }
-                };
-
                 txn.force_commit().await?;
-
-                if let Some((collection_short_id, commit)) = collection_commit {
-                    if let Some(slot) = metadata.authored_collection_commit {
-                        // A retry reaches this point only after an attempt that
-                        // conflicted, and a conflicted attempt never commits, so
-                        // the slot can only be empty here.
-                        let delivered = slot.set(commit).is_ok();
-                        debug_assert!(delivered, "one merge fills one slot");
-                    }
-                    self.db
-                        .maybe_prune_collection_heads(collection_short_id)
-                        .await;
-                }
 
                 self.best_effort_finalize_linked_field_blocks(&state.linked_field_cids)
                     .await;

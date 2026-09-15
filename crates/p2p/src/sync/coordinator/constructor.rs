@@ -94,6 +94,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
             collection_store,
             filter_matcher,
             Arc::new(DefaultBlockClassifier),
+            #[cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
             Arc::new(LateBoundServeAcp::new()),
         )
         .await
@@ -151,6 +152,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
             head_provider,
             filter_matcher,
             Arc::new(DefaultBlockClassifier),
+            #[cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
             Arc::new(LateBoundServeAcp::new()),
         )
         .await

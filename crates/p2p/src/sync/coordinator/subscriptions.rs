@@ -82,7 +82,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
             .map(move |collection_id| {
                 let broadcaster = broadcaster.clone();
                 async move {
-                    let result = tokio::time::timeout(
+                    let result = n0_future::time::timeout(
                         COLLECTION_SUBSCRIPTION_TIMEOUT,
                         broadcaster.subscribe_collection(&collection_id),
                     )
@@ -183,7 +183,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
             .map(move |collection_id| {
                 let broadcaster = broadcaster.clone();
                 async move {
-                    let result = tokio::time::timeout(
+                    let result = n0_future::time::timeout(
                         COLLECTION_SUBSCRIPTION_TIMEOUT,
                         broadcaster.unsubscribe_collection(&collection_id),
                     )
@@ -277,7 +277,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
             loop {
                 tokio::select! {
                     _ = task_shutdown.cancelled() => break,
-                    _ = tokio::time::sleep(delay) => {}
+                    _ = n0_future::time::sleep(delay) => {}
                 }
 
                 // Desired state, the live cache, and transport installation
@@ -307,7 +307,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
                     return;
                 }
 
-                let result = tokio::time::timeout(
+                let result = n0_future::time::timeout(
                     COLLECTION_SUBSCRIPTION_TIMEOUT,
                     broadcaster.subscribe_collection(&retry_id),
                 )
@@ -362,7 +362,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
             loop {
                 tokio::select! {
                     _ = task_shutdown.cancelled() => break,
-                    _ = tokio::time::sleep(delay) => {}
+                    _ = n0_future::time::sleep(delay) => {}
                 }
 
                 // Serialize the durable check and transport cleanup with
@@ -387,7 +387,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
                     }
                 }
 
-                let result = tokio::time::timeout(
+                let result = n0_future::time::timeout(
                     COLLECTION_SUBSCRIPTION_TIMEOUT,
                     broadcaster.unsubscribe_collection(&retry_id),
                 )
@@ -448,7 +448,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
             .map(move |collection_id| {
                 let broadcaster = broadcaster.clone();
                 async move {
-                    let result = tokio::time::timeout(
+                    let result = n0_future::time::timeout(
                         COLLECTION_SUBSCRIPTION_TIMEOUT,
                         broadcaster.subscribe_collection(&collection_id),
                     )
@@ -650,7 +650,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl P2PTransport for RecordingTransport {
         type ResponseToken = ();
 
@@ -705,7 +706,7 @@ mod tests {
             self.max_subscribe_in_flight
                 .fetch_max(in_flight, Ordering::Relaxed);
             if !self.subscribe_delay.is_zero() {
-                tokio::time::sleep(self.subscribe_delay).await;
+                n0_future::time::sleep(self.subscribe_delay).await;
             }
 
             let should_fail_once = {
@@ -956,7 +957,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl P2PCollectionStorage for RecordingCollectionStore {
         async fn add_collection(&self, collection_id: &str) -> crate::Result<()> {
             self.add_batches.fetch_add(1, Ordering::Relaxed);
@@ -1157,12 +1159,12 @@ mod tests {
         assert!(transport.subscribed_topics().is_empty());
         assert_eq!(collection_store.add_batches(), 1);
 
-        tokio::time::timeout(Duration::from_secs(2), async {
+        n0_future::time::timeout(Duration::from_secs(2), async {
             loop {
                 if transport.subscribed_topics() == vec!["users"] {
                     break;
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                n0_future::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
@@ -1235,12 +1237,12 @@ mod tests {
         );
         assert!(transport.subscribed_topics().is_empty());
 
-        tokio::time::timeout(Duration::from_secs(2), async {
+        n0_future::time::timeout(Duration::from_secs(2), async {
             loop {
                 if transport.subscribed_topics() == vec!["users"] {
                     break;
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                n0_future::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
@@ -1329,12 +1331,12 @@ mod tests {
             "failed live removal must remain cached for retry"
         );
 
-        tokio::time::timeout(Duration::from_secs(2), async {
+        n0_future::time::timeout(Duration::from_secs(2), async {
             loop {
                 if transport.subscribed_topics().is_empty() {
                     break;
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                n0_future::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
@@ -1381,7 +1383,7 @@ mod tests {
             coordinator.get_subscribed_collections().await.unwrap(),
             vec!["users".to_string()]
         );
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        n0_future::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(
             transport.subscribed_topics(),
             vec!["users"],
@@ -1430,10 +1432,11 @@ mod tests {
 
         retry_started.notified().await;
         let retrying_coordinator = Arc::clone(&coordinator);
-        let mut resubscribe =
-            tokio::spawn(async move { retrying_coordinator.subscribe_collection("users").await });
+        let mut resubscribe = n0_future::task::spawn(async move {
+            retrying_coordinator.subscribe_collection("users").await
+        });
         assert!(
-            tokio::time::timeout(Duration::from_millis(50), &mut resubscribe)
+            n0_future::time::timeout(Duration::from_millis(50), &mut resubscribe)
                 .await
                 .is_err(),
             "foreground re-subscribe must wait for in-flight cleanup"
@@ -1471,7 +1474,7 @@ mod tests {
             .expect_err("first unsubscribe should fail");
         assert!(!coordinator.subscribe_collection("users").await.unwrap());
 
-        tokio::time::timeout(Duration::from_secs(2), async {
+        n0_future::time::timeout(Duration::from_secs(2), async {
             loop {
                 if coordinator
                     .subscriptions
@@ -1482,7 +1485,7 @@ mod tests {
                 {
                     break;
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                n0_future::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
@@ -1492,12 +1495,12 @@ mod tests {
             .unsubscribe_collection("users")
             .await
             .expect_err("second unsubscribe should exercise a fresh retry owner");
-        tokio::time::timeout(Duration::from_secs(2), async {
+        n0_future::time::timeout(Duration::from_secs(2), async {
             loop {
                 if transport.subscribed_topics().is_empty() {
                     break;
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                n0_future::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
@@ -1545,12 +1548,12 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
-        tokio::time::timeout(Duration::from_secs(2), async {
+        n0_future::time::timeout(Duration::from_secs(2), async {
             loop {
                 if transport.subscribed_topics().is_empty() {
                     break;
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                n0_future::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await

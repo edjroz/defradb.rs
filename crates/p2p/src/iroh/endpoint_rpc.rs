@@ -148,7 +148,7 @@ async fn connect_once(
     alpn: &[u8],
     direct_addr: Option<std::net::SocketAddr>,
 ) -> crate::error::Result<iroh::endpoint::Connection> {
-    tokio::time::timeout(
+    n0_future::time::timeout(
         CONNECT_TIMEOUT,
         endpoint.connect(endpoint_addr(endpoint_id, direct_addr), alpn),
     )
@@ -166,7 +166,7 @@ async fn open_tagged_stream(
     peer_id: &PeerId,
     tag: &[u8],
 ) -> crate::error::Result<(iroh::endpoint::SendStream, iroh::endpoint::RecvStream)> {
-    let (mut send, recv) = tokio::time::timeout(OPEN_STREAM_TIMEOUT, connection.open_bi())
+    let (mut send, recv) = n0_future::time::timeout(OPEN_STREAM_TIMEOUT, connection.open_bi())
         .await
         .map_err(|_| {
             crate::error::Error::Transport(format!(
@@ -407,7 +407,7 @@ where
         return Err(error);
     }
 
-    let response: Resp = tokio::time::timeout(
+    let response: Resp = n0_future::time::timeout(
         REQUEST_RESPONSE_TIMEOUT,
         protocols::read_message(&mut recv, protocols::MAX_MESSAGE_SIZE),
     )
@@ -498,7 +498,7 @@ pub(super) async fn handle_two_stream_request(
             )),
         }
     };
-    tokio::time::timeout(REQUEST_RESPONSE_TIMEOUT, wait_for_reply_or_disconnect)
+    n0_future::time::timeout(REQUEST_RESPONSE_TIMEOUT, wait_for_reply_or_disconnect)
         .await
         .map_err(|_| {
             warn!(
@@ -547,7 +547,7 @@ async fn send_one_way_message<T: serde::Serialize>(
     // Wait for peer to close their side of the stream (via RESET_STREAM or FIN).
     // This ensures the connection stays open long enough for the peer's accept_bi()
     // to run and read the message before CONNECTION_CLOSE is sent.
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), recv.read_to_end(16)).await;
+    let _ = n0_future::time::timeout(std::time::Duration::from_secs(5), recv.read_to_end(16)).await;
 
     Ok(())
 }
@@ -623,7 +623,7 @@ pub(super) async fn handle_car_request_response(
         return Err(error);
     }
 
-    let car_data = tokio::time::timeout(
+    let car_data = n0_future::time::timeout(
         REQUEST_RESPONSE_TIMEOUT,
         recv.read_to_end(protocols::MAX_CAR_SIZE),
     )
@@ -750,43 +750,45 @@ async fn try_fetch_from_provider(
         "CAR fetch: request sent, waiting for response"
     );
 
-    let car_data =
-        match tokio::time::timeout(REQUEST_RESPONSE_TIMEOUT, recv.read_to_end(64 * 1024 * 1024))
-            .await
-        {
-            Ok(Ok(data)) => data,
-            Ok(Err(e)) => {
-                evict_if_closed(cache, provider, &connection);
-                debug!(
-                    provider = %provider,
-                    root = %request.root_cid,
-                    error = %e,
-                    "CAR fetch: read response failed"
-                );
-                return CarFetchAttempt {
-                    provider: provider.clone(),
-                    outcome: CarFetchOutcome::ReadFailed(e.to_string()),
-                };
-            }
-            Err(_) => {
-                retire_timed_out_connection(cache, provider, &connection);
-                debug!(
-                    provider = %provider,
-                    root = %request.root_cid,
-                    recursive = request.recursive,
-                    requested_count = request.wanted_cids.len(),
-                    timeout_secs = REQUEST_RESPONSE_TIMEOUT.as_secs(),
-                    "CAR fetch: response timed out"
-                );
-                return CarFetchAttempt {
-                    provider: provider.clone(),
-                    outcome: CarFetchOutcome::ReadFailed(format!(
-                        "timed out after {}s",
-                        REQUEST_RESPONSE_TIMEOUT.as_secs()
-                    )),
-                };
-            }
-        };
+    let car_data = match n0_future::time::timeout(
+        REQUEST_RESPONSE_TIMEOUT,
+        recv.read_to_end(64 * 1024 * 1024),
+    )
+    .await
+    {
+        Ok(Ok(data)) => data,
+        Ok(Err(e)) => {
+            evict_if_closed(cache, provider, &connection);
+            debug!(
+                provider = %provider,
+                root = %request.root_cid,
+                error = %e,
+                "CAR fetch: read response failed"
+            );
+            return CarFetchAttempt {
+                provider: provider.clone(),
+                outcome: CarFetchOutcome::ReadFailed(e.to_string()),
+            };
+        }
+        Err(_) => {
+            retire_timed_out_connection(cache, provider, &connection);
+            debug!(
+                provider = %provider,
+                root = %request.root_cid,
+                recursive = request.recursive,
+                requested_count = request.wanted_cids.len(),
+                timeout_secs = REQUEST_RESPONSE_TIMEOUT.as_secs(),
+                "CAR fetch: response timed out"
+            );
+            return CarFetchAttempt {
+                provider: provider.clone(),
+                outcome: CarFetchOutcome::ReadFailed(format!(
+                    "timed out after {}s",
+                    REQUEST_RESPONSE_TIMEOUT.as_secs()
+                )),
+            };
+        }
+    };
 
     if car_data.is_empty() {
         debug!(
@@ -896,7 +898,7 @@ pub(super) async fn handle_block_sync(
     providers: Vec<PeerId>,
     missing: Vec<cid::Cid>,
 ) {
-    use tokio::task::JoinSet;
+    use n0_future::task::JoinSet;
 
     if !missing.is_empty() {
         debug!(
@@ -954,7 +956,8 @@ pub(super) async fn handle_block_sync(
         "selective"
     };
 
-    while let Some(task) = tasks.join_next().await {
+    // The browser JoinSet has no join_next; poll_join_next exists on both.
+    while let Some(task) = std::future::poll_fn(|cx| tasks.poll_join_next(cx)).await {
         match task {
             Ok(attempt) if attempt.outcome.is_success() => {
                 any_success = true;
@@ -1086,7 +1089,7 @@ mod tests {
         let accept_ep = localhost_endpoint(vec![b"test/a".to_vec(), b"test/b".to_vec()]).await;
         let dial_ep = localhost_endpoint(vec![]).await;
 
-        let accept_task = tokio::spawn({
+        let accept_task = n0_future::task::spawn({
             let ep = accept_ep.clone();
             async move {
                 let mut held = Vec::new();
@@ -1133,7 +1136,7 @@ mod tests {
     async fn response_timeout_closes_and_evicts_the_cached_connection() {
         let accept_ep = localhost_endpoint(vec![b"test/timeout".to_vec()]).await;
         let dial_ep = localhost_endpoint(vec![]).await;
-        let accept_task = tokio::spawn({
+        let accept_task = n0_future::task::spawn({
             let ep = accept_ep.clone();
             async move {
                 let mut held = Vec::new();
@@ -1173,7 +1176,7 @@ mod tests {
     async fn late_timeout_does_not_evict_a_newer_cached_connection() {
         let accept_ep = localhost_endpoint(vec![b"test/old".to_vec(), b"test/new".to_vec()]).await;
         let dial_ep = localhost_endpoint(vec![]).await;
-        let accept_task = tokio::spawn({
+        let accept_task = n0_future::task::spawn({
             let ep = accept_ep.clone();
             async move {
                 let mut held = Vec::new();
@@ -1227,7 +1230,7 @@ mod tests {
         let barrier = Arc::new(tokio::sync::Barrier::new(CALLERS));
         let (accepted_tx, mut accepted_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let accept_task = tokio::spawn({
+        let accept_task = n0_future::task::spawn({
             let endpoint = accept_ep.clone();
             async move {
                 let mut held = Vec::new();
@@ -1258,12 +1261,12 @@ mod tests {
             result.expect("dial task");
         }
 
-        tokio::time::timeout(std::time::Duration::from_secs(1), accepted_rx.recv())
+        n0_future::time::timeout(std::time::Duration::from_secs(1), accepted_rx.recv())
             .await
             .expect("receiver accepted the connection")
             .expect("accept observer remained open");
         assert!(
-            tokio::time::timeout(std::time::Duration::from_millis(100), accepted_rx.recv())
+            n0_future::time::timeout(std::time::Duration::from_millis(100), accepted_rx.recv())
                 .await
                 .is_err(),
             "one peer/ALPN key must establish only one transport connection"

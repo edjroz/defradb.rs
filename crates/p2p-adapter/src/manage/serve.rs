@@ -343,7 +343,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl P2POperations for MockOps {
         async fn local_peer_id(&self) -> P2PResult<String> {
             Ok(self.peer_id.clone())
@@ -429,7 +430,8 @@ mod tests {
     /// `BoolNac(true)` allows.
     struct BoolNac(bool);
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl db::NacManagerApi for BoolNac {
         async fn check_permission(
             &self,

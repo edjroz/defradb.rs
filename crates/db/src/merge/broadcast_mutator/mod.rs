@@ -69,7 +69,7 @@ pub struct BroadcastSeOptions {
 /// re-push without naming the transport type.
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-pub trait SeArtifactRepusher: Send + Sync {
+pub trait SeArtifactRepusher: defra_core::thread_bounds::MaybeSendSync {
     /// Regenerate SE artifacts for `doc_id` in `collection_id` and push them to
     /// the collection's replicators. A no-op when the collection has no encrypted
     /// indexes, no SE key is provisioned, or the document is absent.

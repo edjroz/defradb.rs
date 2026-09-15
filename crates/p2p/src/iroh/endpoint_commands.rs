@@ -893,7 +893,7 @@ pub(super) async fn subscribe_topic_str(
     let topic_str_clone = topic_str.clone();
     let reader_neighbors = Arc::clone(&neighbors);
     let raw_topics_reader = Arc::clone(raw_topics);
-    let reader_task = tokio::spawn(async move {
+    let reader_task = n0_future::task::spawn(async move {
         while let Some(result) = receiver.next().await {
             match result {
                 Ok(event) => match event {
@@ -1149,7 +1149,7 @@ fn handle_publish_raw(
             match gossip.subscribe(topic_id, initial_peers).await {
                 Ok(mut topic) => {
                     if let Err(error) =
-                        tokio::time::timeout(RAW_PUBLISH_JOIN_TIMEOUT, topic.joined()).await
+                        n0_future::time::timeout(RAW_PUBLISH_JOIN_TIMEOUT, topic.joined()).await
                     {
                         warn!(
                             topic = %topic_str,

@@ -171,7 +171,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl Store for InMemoryStore {
         async fn get_size(&self, cid: &Cid) -> anyhow::Result<usize> {
             self.inner
@@ -555,7 +556,8 @@ mod tests {
     #[derive(Clone)]
     struct StaticClassifier(BlockClass);
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl BlockClassifier for StaticClassifier {
         async fn classify(&self, _cid: &Cid, _data: &[u8]) -> BlockClass {
             self.0.clone()

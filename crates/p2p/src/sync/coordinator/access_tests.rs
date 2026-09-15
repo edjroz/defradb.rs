@@ -14,8 +14,8 @@ use std::{future::Future, pin::Pin};
 use blockstore::{Blockstore, DefraBlockstore, Error as BlockstoreError};
 use cid::Cid;
 use multihash_codetable::{Code, MultihashDigest};
+use n0_future::time::timeout;
 use storage::RegolithStore;
-use tokio::time::timeout;
 
 use crate::bitswap::{
     AccessMode, BlockAcpMeta, BlockClass, BlockClassifier, BlockReadGate, LateBoundServeAcp,
@@ -547,7 +547,7 @@ impl ConflictOnceBlockstore {
 impl Blockstore for ConflictOnceBlockstore {
     async fn get(&self, cid: &Cid) -> blockstore::Result<Option<bytes::Bytes>> {
         if self.delayed_get.as_ref() == Some(cid) {
-            tokio::time::sleep(Duration::from_secs(3)).await;
+            n0_future::time::sleep(Duration::from_secs(3)).await;
         }
         self.inner.get(cid).await
     }
@@ -1166,7 +1166,7 @@ async fn dispatch_complete_pending<B: Blockstore + 'static, T: P2PTransport>(
     let root = roots[0];
     assert!(coordinator
         .manager()
-        .try_claim_pending_dag_dispatch(&root, tokio::time::Instant::now()));
+        .try_claim_pending_dag_dispatch(&root, n0_future::time::Instant::now()));
     assert!(coordinator
         .manager()
         .retry_pending_dag(&root)
@@ -1552,7 +1552,7 @@ async fn car_put_many_conflict_retries_before_publishing_one_success_completion(
 
     let ingest = {
         let coordinator = Arc::clone(&coordinator);
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             coordinator
                 .handle_transport_event(TransportEvent::CarFetchResponse {
                     query_id: None,
@@ -1794,7 +1794,7 @@ async fn committed_head_admission_does_not_wait_for_a_batching_timer() {
     coordinator.set_failure_channel(failure_tx);
     let registered = Arc::new(AtomicUsize::new(0));
     let observer = Arc::clone(&registered);
-    let markers = tokio::spawn(async move {
+    let markers = n0_future::task::spawn(async move {
         while let Some(mut observation) = failure_rx.recv().await {
             if let Some(ack) = observation.durable_tx.take() {
                 observer.fetch_add(1, Ordering::SeqCst);
@@ -1820,12 +1820,12 @@ async fn committed_head_admission_does_not_wait_for_a_batching_timer() {
                 .await
                 .unwrap();
         }
-        let started = tokio::time::Instant::now();
+        let started = n0_future::time::Instant::now();
         coordinator
             .push_to_replicators(&root, &data, "doc1", "collection1")
             .await
             .unwrap();
-        assert_eq!(tokio::time::Instant::now(), started, "committed writes must wait for durable admission, not debounce windows; paired={paired}");
+        assert_eq!(n0_future::time::Instant::now(), started, "committed writes must wait for durable admission, not debounce windows; paired={paired}");
         if paired {
             assert_eq!(registered.load(Ordering::SeqCst), 1);
         }
@@ -1877,7 +1877,7 @@ async fn car_authorization_timeout_preserves_only_independent_grants() {
             .selective_car_access
             .register(peer.clone(), root)
             .unwrap();
-        let started = tokio::time::Instant::now();
+        let started = n0_future::time::Instant::now();
         coordinator
             .handle_transport_event(selective_car_fetch_event(peer, root, vec![leaf]))
             .await
@@ -2021,7 +2021,7 @@ async fn filtered_car_authority_is_rederived_after_sender_restart() {
     .unwrap();
     let (failure_tx, mut failure_rx) = tokio::sync::mpsc::channel(16);
     coordinator.set_failure_channel(failure_tx);
-    tokio::spawn(async move {
+    n0_future::task::spawn(async move {
         while let Some(mut event) = failure_rx.recv().await {
             if let Some(durable_tx) = event.durable_tx.take() {
                 let _ = durable_tx.send(true);
@@ -3460,7 +3460,7 @@ async fn concurrent_same_cid_pushlog_and_car_have_one_storage_owner() {
     let push = {
         let coordinator = Arc::clone(&coordinator);
         let peer = peer.clone();
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             coordinator
                 .handle_transport_event(TransportEvent::PushLogRequest {
                     peer_id: peer,
@@ -3480,7 +3480,7 @@ async fn concurrent_same_cid_pushlog_and_car_have_one_storage_owner() {
     let car = {
         let coordinator = Arc::clone(&coordinator);
         let peer = peer.clone();
-        tokio::spawn(async move {
+        n0_future::task::spawn(async move {
             coordinator
                 .handle_transport_event(TransportEvent::CarFetchResponse {
                     query_id: Some(query_id),
@@ -3793,7 +3793,7 @@ async fn saturated_request_worker_replies_with_actionable_capacity_nack() {
         Some(crate::error::AT_CAPACITY_MESSAGE)
     );
     assert!(
-        tokio::time::timeout(Duration::from_millis(25), events.recv())
+        n0_future::time::timeout(Duration::from_millis(25), events.recv())
             .await
             .is_err(),
         "rejected work must not reach receiver ownership"

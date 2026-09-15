@@ -124,21 +124,21 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
         }
 
         let wait = timeout.unwrap_or(DEFAULT_PUBSUB_SYNC_TIMEOUT);
-        let deadline = tokio::time::Instant::now()
+        let deadline = n0_future::time::Instant::now()
             .checked_add(wait)
-            .unwrap_or_else(|| tokio::time::Instant::now() + Duration::from_secs(86_400 * 365));
+            .unwrap_or_else(|| n0_future::time::Instant::now() + Duration::from_secs(86_400 * 365));
         let mut out = Vec::new();
         loop {
             if expected_responses.is_some_and(|expected| out.len() >= expected) {
                 break;
             }
 
-            let Some(remaining) = deadline.checked_duration_since(tokio::time::Instant::now())
+            let Some(remaining) = deadline.checked_duration_since(n0_future::time::Instant::now())
             else {
                 break;
             };
 
-            let Ok(Some(resp)) = tokio::time::timeout(remaining, prep.responses.recv()).await
+            let Ok(Some(resp)) = n0_future::time::timeout(remaining, prep.responses.recv()).await
             else {
                 break;
             };
@@ -243,19 +243,19 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
         }
 
         let wait = timeout.unwrap_or(DEFAULT_PUBSUB_SYNC_TIMEOUT);
-        let deadline = tokio::time::Instant::now() + wait;
+        let deadline = n0_future::time::Instant::now() + wait;
         let mut out = Vec::new();
         loop {
             if expected_responses.is_some_and(|expected| out.len() >= expected) {
                 break;
             }
 
-            let Some(remaining) = deadline.checked_duration_since(tokio::time::Instant::now())
+            let Some(remaining) = deadline.checked_duration_since(n0_future::time::Instant::now())
             else {
                 break;
             };
 
-            let Ok(Some(resp)) = tokio::time::timeout(remaining, prep.responses.recv()).await
+            let Ok(Some(resp)) = n0_future::time::timeout(remaining, prep.responses.recv()).await
             else {
                 break;
             };
@@ -371,7 +371,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl P2PTransport for RawSubscribeFailTransport {
         type ResponseToken = ();
 

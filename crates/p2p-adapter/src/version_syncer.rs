@@ -53,12 +53,12 @@ async fn fetch_block<B: Blockstore>(
         .map_err(|error| P2PError::transport(format!("bitswap sync for {target_cid}: {error}")))?;
 
     let timeout = std::time::Duration::from_secs(timeout_secs);
-    let start = std::time::Instant::now();
+    let start = web_time::Instant::now();
     while start.elapsed() < timeout {
         if let Ok(Some(data)) = blockstore.get(&target_cid).await {
             return Ok(data);
         }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        n0_future::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
     Err(P2PError::transport(format!(
@@ -146,7 +146,8 @@ async fn sync_lens<S: storage::corekv::Store + 'static, B: Blockstore>(
     Ok(())
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<S: storage::corekv::Store + 'static, B: Blockstore + 'static> VersionSyncer
     for DbVersionSyncer<S, B>
 {
@@ -171,7 +172,7 @@ impl<S: storage::corekv::Store + 'static, B: Blockstore + 'static> VersionSyncer
             }
 
             let timeout = std::time::Duration::from_secs(30);
-            let start = std::time::Instant::now();
+            let start = web_time::Instant::now();
             let mut block_found = false;
             while start.elapsed() < timeout {
                 let txn = match self.db.new_txn(true).await {
@@ -194,7 +195,9 @@ impl<S: storage::corekv::Store + 'static, B: Blockstore + 'static> VersionSyncer
                         block_found = true;
                         break;
                     }
-                    Ok(false) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+                    Ok(false) => {
+                        n0_future::time::sleep(std::time::Duration::from_millis(100)).await
+                    }
                     Err(error) => {
                         tracing::warn!(error = %error, "blockstore check failed");
                         break;
@@ -255,7 +258,7 @@ impl<S: storage::corekv::Store + 'static, B: Blockstore + 'static> VersionSyncer
                     }
 
                     let link_timeout = std::time::Duration::from_secs(10);
-                    let link_start = std::time::Instant::now();
+                    let link_start = web_time::Instant::now();
                     let mut link_found = false;
                     while link_start.elapsed() < link_timeout {
                         match self.blockstore.get(&link_cid).await {
@@ -264,7 +267,7 @@ impl<S: storage::corekv::Store + 'static, B: Blockstore + 'static> VersionSyncer
                                 break;
                             }
                             Ok(None) => {
-                                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                                n0_future::time::sleep(std::time::Duration::from_millis(100)).await;
                             }
                             Err(error) => {
                                 tracing::warn!(cid = %link_cid, error = %error, "error waiting for link");

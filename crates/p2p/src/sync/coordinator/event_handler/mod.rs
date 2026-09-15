@@ -50,7 +50,7 @@ impl<B: Blockstore + 'static, T: P2PTransport> SyncCoordinator<B, T> {
                         error = %error,
                         "Retryable transport event failed; backing off and retrying"
                     );
-                    tokio::time::sleep(retriable_event_delay(attempt)).await;
+                    n0_future::time::sleep(retriable_event_delay(attempt)).await;
                     attempt += 1;
                 }
                 Err(error) => return Err(error),
@@ -721,7 +721,8 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     impl P2PTransport for TestTransport {
         type ResponseToken = ();
 
@@ -1112,7 +1113,7 @@ mod tests {
 
         assert!(events.try_recv().is_err());
         assert_eq!(
-            coordinator.dispatch_due_pending_dag_fetches_for_test(tokio::time::Instant::now()),
+            coordinator.dispatch_due_pending_dag_fetches_for_test(n0_future::time::Instant::now()),
             1
         );
         match events.try_recv().expect("clock-driven DagNeedsFetch event") {
@@ -1201,7 +1202,7 @@ mod tests {
 
         assert!(events.try_recv().is_err());
         assert_eq!(
-            coordinator.dispatch_due_pending_dag_fetches_for_test(tokio::time::Instant::now()),
+            coordinator.dispatch_due_pending_dag_fetches_for_test(n0_future::time::Instant::now()),
             1
         );
         match events.try_recv().expect("clock-driven DagNeedsFetch event") {
@@ -1241,7 +1242,7 @@ mod tests {
         // One clock tick: the expedited root is now due.
         let due = coordinator
             .manager()
-            .claim_due_pending_dag_retries(tokio::time::Instant::now());
+            .claim_due_pending_dag_retries(n0_future::time::Instant::now());
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].0, root_cid);
         for (due_root, dag) in &due {
@@ -1268,7 +1269,7 @@ mod tests {
         // above already re-armed the root to the next backoff rung.
         let due_again = coordinator
             .manager()
-            .claim_due_pending_dag_retries(tokio::time::Instant::now());
+            .claim_due_pending_dag_retries(n0_future::time::Instant::now());
         assert!(due_again.is_empty());
         assert!(
             events.try_recv().is_err(),
@@ -1320,7 +1321,7 @@ mod tests {
         assert_eq!(before_clock.pending_dag_retry_dispatched, 0);
         assert!(before_clock.next_pending_retry_in_ms.is_some());
         assert_eq!(
-            coordinator.dispatch_due_pending_dag_fetches_for_test(tokio::time::Instant::now()),
+            coordinator.dispatch_due_pending_dag_fetches_for_test(n0_future::time::Instant::now()),
             1
         );
         match events.try_recv().expect("clock-driven DagNeedsFetch event") {
@@ -1344,7 +1345,7 @@ mod tests {
         // A same-instant claim attempt is suppressed.
         assert!(!coordinator
             .manager()
-            .try_claim_pending_dag_dispatch(&root_cid, tokio::time::Instant::now()));
+            .try_claim_pending_dag_dispatch(&root_cid, n0_future::time::Instant::now()));
         assert_eq!(coordinator.sync_status().pending_dag_retry_suppressed, 1);
 
         // Feed the missing field block: the DAG is ready, but remains owned
@@ -1383,7 +1384,7 @@ mod tests {
                 .expect("coordinator");
         let coordinator = Arc::new(coordinator);
         let runner = Arc::clone(&coordinator);
-        let clock = tokio::spawn(async move {
+        let clock = n0_future::task::spawn(async move {
             runner
                 .run_pending_dag_retry_clock(Duration::from_secs(60))
                 .await;
@@ -1391,7 +1392,7 @@ mod tests {
         // Let the initial tick run before admitting work. No virtual time
         // advances until after the assertion below.
         tokio::task::yield_now().await;
-        let now = tokio::time::Instant::now();
+        let now = n0_future::time::Instant::now();
         let (field_cid, _) = create_lww_block("name");
         let (root_cid, root_block) = create_composite_block("wake", "name", field_cid);
         coordinator
@@ -1408,7 +1409,7 @@ mod tests {
         assert!(
             matches!(events.try_recv(), Ok(SyncEvent::DagNeedsFetch { root_cid: root, .. }) if root == root_cid)
         );
-        assert_eq!(tokio::time::Instant::now(), now);
+        assert_eq!(n0_future::time::Instant::now(), now);
         assert_eq!(coordinator.sync_status().pending_dag_retry_dispatched, 1);
         coordinator.shutdown().await;
         clock.await.expect("retry owner exits on shutdown");
@@ -1443,7 +1444,7 @@ mod tests {
         }
 
         let retained_before = coordinator.sync_status().retained_background_tasks;
-        let now = tokio::time::Instant::now();
+        let now = n0_future::time::Instant::now();
         assert_eq!(
             coordinator.dispatch_due_pending_dag_fetches_for_test(now),
             1

@@ -180,6 +180,15 @@ impl Node {
             let _ = tokio::time::timeout(timeout, tasks.replication_task).await;
             let _ = tokio::time::timeout(timeout, tasks.host_task).await;
 
+            #[cfg(feature = "iroh-relay-server")]
+            if let Some(relay_server) = tasks.iroh_relay_server {
+                match tokio::time::timeout(timeout, relay_server.shutdown()).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => warn!("iroh relay server shutdown encountered an issue: {}", e),
+                    Err(_) => warn!("iroh relay server did not stop within {:?}", timeout),
+                }
+            }
+
             info!("P2P background tasks stopped");
         }
 

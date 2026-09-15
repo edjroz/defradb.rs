@@ -26,7 +26,7 @@ async fn requested_descendants_with_budget<B: Blockstore>(
     requested: HashSet<Cid>,
     budget: Duration,
 ) -> Result<HashSet<Cid>> {
-    tokio::time::timeout(budget, async {
+    n0_future::time::timeout(budget, async {
         let mut remaining = requested;
         let mut authorized = HashSet::new();
         let mut visited = HashSet::new();

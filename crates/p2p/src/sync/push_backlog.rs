@@ -29,7 +29,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::time::Instant;
+use n0_future::time::Instant;
 
 use bytes::Bytes;
 use cid::Cid;
@@ -556,7 +556,7 @@ impl PushBacklog {
                 Some(wake_at) => {
                     tokio::select! {
                         _ = notified => {}
-                        _ = tokio::time::sleep_until(wake_at) => {}
+                        _ = n0_future::time::sleep_until(wake_at) => {}
                     }
                 }
                 None => notified.await,
@@ -820,7 +820,7 @@ mod tests {
         let drained = backlog.next_job().await.expect("healthy peer must drain");
         assert_eq!(drained.peer_id.to_string(), "other");
 
-        let parked = tokio::time::timeout(Duration::from_millis(150), backlog.next_job()).await;
+        let parked = n0_future::time::timeout(Duration::from_millis(150), backlog.next_job()).await;
         assert!(
             parked.is_err(),
             "a saturated peer must not hand out more work while parked"
@@ -1024,11 +1024,11 @@ mod tests {
         assert_eq!(healthy_job.peer_id.to_string(), "healthy");
 
         // Nothing else is eligible until a slow slot frees.
-        let parked = tokio::time::timeout(Duration::from_millis(50), backlog.next_job()).await;
+        let parked = n0_future::time::timeout(Duration::from_millis(50), backlog.next_job()).await;
         assert!(parked.is_err(), "slow peer above cap must not be served");
 
         backlog.job_done(&slow_job, JobCompletion::Succeeded);
-        let released = tokio::time::timeout(Duration::from_millis(200), backlog.next_job())
+        let released = n0_future::time::timeout(Duration::from_millis(200), backlog.next_job())
             .await
             .expect("released slot must unblock the queued job")
             .unwrap();
@@ -1040,12 +1040,12 @@ mod tests {
         let backlog = PushBacklog::new(1024, usize::MAX, 4, 4);
         let waiter = {
             let backlog = Arc::clone(&backlog);
-            tokio::spawn(async move { backlog.next_job().await })
+            n0_future::task::spawn(async move { backlog.next_job().await })
         };
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        n0_future::time::sleep(Duration::from_millis(20)).await;
         backlog.close();
 
-        let parked_result = tokio::time::timeout(Duration::from_millis(200), waiter)
+        let parked_result = n0_future::time::timeout(Duration::from_millis(200), waiter)
             .await
             .expect("close must wake parked workers")
             .unwrap();
