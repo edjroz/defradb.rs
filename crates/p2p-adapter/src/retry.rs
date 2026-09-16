@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use p2p::transport::{P2PTransport, PeerAddr, PeerId};
+use rapidhash::{HashMapExt, RapidHashMap, RapidHashSet};
 
 use crate::TransportDocPusher;
 
@@ -237,7 +238,7 @@ impl ReconnectProbe {
 async fn run_reconnect_pass<S, T>(
     peerstore: &storage::stores::Peerstore<S>,
     transport: &T,
-    probes: &mut std::collections::HashMap<String, ReconnectProbe>,
+    probes: &mut RapidHashMap<String, ReconnectProbe>,
 ) where
     S: storage::corekv::Store,
     T: P2PTransport,
@@ -254,8 +255,7 @@ async fn run_reconnect_pass<S, T>(
             return;
         }
     };
-    let scheduled: std::collections::HashSet<&str> =
-        peers.iter().map(|(peer_id, _)| peer_id.as_str()).collect();
+    let scheduled: RapidHashSet<&str> = peers.iter().map(|(peer_id, _)| peer_id.as_str()).collect();
     probes.retain(|peer_id, _| scheduled.contains(peer_id.as_str()));
 
     let now = n0_future::time::Instant::now();
@@ -517,7 +517,7 @@ where
         // dial that runs to `RECONNECT_DIAL_TIMEOUT` must not hold up a replay
         // that is already due.
         let reconnect = async {
-            let mut probes = std::collections::HashMap::new();
+            let mut probes = RapidHashMap::new();
             loop {
                 n0_future::time::sleep(p2p::sync::PERSISTED_RETRY_SWEEP_INTERVAL).await;
                 run_reconnect_pass(&peerstore, &transport, &mut probes).await;
@@ -535,7 +535,6 @@ mod sweep_tests;
 mod tests {
     use super::*;
 
-    use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
@@ -857,7 +856,7 @@ mod tests {
             seed_retry_peer(&peerstore, &format!("peer-{index}"), "/memory/1").await;
         }
         let transport = FakeTransport::new(None);
-        let mut probes = HashMap::new();
+        let mut probes = RapidHashMap::new();
 
         run_reconnect_pass(&peerstore, &transport, &mut probes).await;
 
@@ -878,13 +877,13 @@ mod tests {
         seed_retry_peer(&peerstore, "peer-a", "/memory/1").await;
         // Stand in for a configured second rung far out on the ladder.
         peerstore
-            .reschedule_retry_peer("peer-a", Some(std::time::Duration::from_secs(3600)))
+            .reschedule_retry_peer("peer-a", Some(std::time::Duration::from_secs(3600)), 0)
             .await
             .unwrap();
         let before = next_retry_unix(&peerstore, "peer-a").await;
 
         let transport = FakeTransport::new(Some(Vec::new()));
-        let mut probes = HashMap::new();
+        let mut probes = RapidHashMap::new();
         run_reconnect_pass(&peerstore, &transport, &mut probes).await;
 
         assert_eq!(transport.dialled().len(), 1, "the peer is still probed");
@@ -901,9 +900,9 @@ mod tests {
         seed_retry_peer(&peerstore, "peer-a", "/memory/1").await;
         seed_retry_peer(&peerstore, "peer-b", "/memory/2").await;
         let transport = FakeTransport::hanging(Some(Vec::new()));
-        let mut probes = HashMap::new();
+        let mut probes = RapidHashMap::new();
 
-        let start = tokio::time::Instant::now();
+        let start = n0_future::time::Instant::now();
         run_reconnect_pass(&peerstore, &transport, &mut probes).await;
 
         assert_eq!(
@@ -912,7 +911,7 @@ mod tests {
             "a dial that hangs must not strand the peers queued behind it"
         );
         assert_eq!(
-            tokio::time::Instant::now() - start,
+            n0_future::time::Instant::now() - start,
             RECONNECT_DIAL_TIMEOUT * 2
         );
     }
@@ -925,7 +924,7 @@ mod tests {
             seed_retry_peer(&peerstore, &format!("peer-{index:02}"), "/memory/1").await;
         }
         let transport = FakeTransport::new(Some(Vec::new()));
-        let mut probes = HashMap::new();
+        let mut probes = RapidHashMap::new();
 
         // Each pass takes a bounded bite, and consecutive passes walk the rest
         // of the fleet rather than re-dialling the peers already probed.
@@ -947,7 +946,7 @@ mod tests {
         let peerstore = in_memory_peerstore();
         seed_retry_peer(&peerstore, "peer-a", "/memory/1").await;
         let disconnected = FakeTransport::new(Some(Vec::new()));
-        let mut probes = HashMap::new();
+        let mut probes = RapidHashMap::new();
 
         run_reconnect_pass(&peerstore, &disconnected, &mut probes).await;
         assert_eq!(disconnected.dialled().len(), 1);
@@ -993,7 +992,7 @@ mod tests {
             drop(command_rx);
             let transport = IrohTransport::new(command_tx, key);
 
-            let mut probes = HashMap::new();
+            let mut probes = RapidHashMap::new();
             run_reconnect_pass(&peerstore, &transport, &mut probes).await;
 
             assert!(
@@ -1028,7 +1027,7 @@ mod tests {
             .expect("endpoint");
             let transport = IrohTransport::new(command_tx, key);
 
-            let mut probes = HashMap::new();
+            let mut probes = RapidHashMap::new();
             run_reconnect_pass(&peerstore, &transport, &mut probes).await;
 
             assert_eq!(
