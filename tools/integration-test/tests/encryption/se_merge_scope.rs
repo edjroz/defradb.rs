@@ -36,17 +36,6 @@ fn go_binary() -> PathBuf {
         .join(".cache/defra-harness/53f0e76a3/defradb")
 }
 
-/// The Rust binary is pinned explicitly: `CARGO_TARGET_DIR` is shared between
-/// spikes, so the harness's `workspace_root()/target/debug/defra` default both
-/// misses (the build output goes to the shared dir) and can resolve to another
-/// worktree's sources.
-fn rust_binary() -> PathBuf {
-    PathBuf::from(
-        std::env::var("DEFRA_RUST_BIN")
-            .expect("DEFRA_RUST_BIN must point at the defra binary built from THIS worktree"),
-    )
-}
-
 fn p2p_addr(cluster: &TestCluster, idx: usize) -> String {
     cluster
         .client(idx)
@@ -185,7 +174,6 @@ async fn se_query_hits(
 async fn rust_merger_se_query_finds_replicated_doc() {
     let cluster = TestCluster::builder()
         .rust_nodes(3)
-        .with_rust_binary(BinarySource::Path(rust_binary()))
         .with_p2p()
         .with_encryption()
         .with_shared_searchable_encryption_key(SHARED_SE_KEY)
@@ -223,7 +211,6 @@ async fn rust_merger_se_query_finds_go_created_doc() {
     let cluster = TestCluster::builder()
         .rust_nodes(2)
         .go_nodes(1)
-        .with_rust_binary(BinarySource::Path(rust_binary()))
         .with_go_binary(BinarySource::Path(go_binary()))
         .with_p2p()
         .with_encryption()
@@ -262,7 +249,6 @@ async fn go_merger_se_query_finds_rust_created_doc() {
     let cluster = TestCluster::builder()
         .rust_nodes(1)
         .go_nodes(2)
-        .with_rust_binary(BinarySource::Path(rust_binary()))
         .with_go_binary(BinarySource::Path(go_binary()))
         .with_p2p()
         .with_encryption()
@@ -307,10 +293,9 @@ async fn go_merger_se_query_finds_rust_created_doc() {
 /// multiplies how many `A`-like documents one query has to name: pool size
 /// changes the reported rate, not the defect.
 #[tokio::test]
-async fn merged_doc_misses_while_self_written_doc_hits_on_same_name() {
+async fn merged_and_self_written_docs_both_hit_on_same_name() {
     let cluster = TestCluster::builder()
         .rust_nodes(3)
-        .with_rust_binary(BinarySource::Path(rust_binary()))
         .with_p2p()
         .with_encryption()
         .with_shared_searchable_encryption_key(SHARED_SE_KEY)
