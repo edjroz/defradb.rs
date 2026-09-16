@@ -130,18 +130,16 @@ async fn proxy_to(target_port: u16) -> (Multiaddr, watch::Sender<bool>) {
     )
 }
 
-/// Red until the fork stops treating a failed send as fatal
-/// (`iroh-bitswap/src/client/message_queue.rs`, the `return true` after
-/// "failed to send message"). That fix is the primary one and lands in
-/// `sourcenetwork/beetle`; un-ignore this test in the commit that bumps the
-/// `iroh-bitswap` rev in the workspace `Cargo.toml` to carry it.
+/// Pins the `sourcenetwork/beetle` fix that keeps the per-peer message queue
+/// alive across a failed send (`iroh-bitswap/src/client/message_queue.rs`).
+/// Treating a send error as fatal kills the `MessageQueueActor`, and nothing
+/// rebuilds it while the connection lives.
 ///
 /// `drop_dead_bitswap_connection` in `dag_fetcher.rs` is the receiver-side
 /// defence in depth for what that fix cannot reach — Go peers, and send
 /// failures on transports that keep their own queues. It hangs up on a
 /// connection this test keeps alive on purpose, so it cannot make this test
 /// pass.
-#[ignore = "pins the iroh-bitswap queue defect; fails until the fork keeps the queue alive on a failed send"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn bitswap_recovers_after_a_partition_that_keeps_the_connection_open() {
     let (before_cid, before_data) = block(b"served before the partition");
