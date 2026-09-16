@@ -18,9 +18,8 @@ async fn resolve_push_creator_uses_owner_for_protected_document() {
         .await
         .unwrap();
 
-    let creator = resolve_push_creator(Some(&acp), &protected_collection(), "doc1", "local-peer")
-        .await
-        .unwrap();
+    let creator =
+        resolve_push_creator(Some(&acp), &protected_collection(), "doc1", "local-peer").await;
 
     assert_eq!(creator, owner.to_string());
 }
@@ -29,9 +28,7 @@ async fn resolve_push_creator_uses_owner_for_protected_document() {
 async fn resolve_push_creator_falls_back_without_collection_policy() {
     let collection = Collection::new(CollectionVersion::new("Users", "v1", "col1", vec![]));
 
-    let creator = resolve_push_creator(None, &collection, "doc1", "local-peer")
-        .await
-        .unwrap();
+    let creator = resolve_push_creator(None, &collection, "doc1", "local-peer").await;
 
     assert_eq!(creator, "local-peer");
 }
@@ -40,25 +37,30 @@ async fn resolve_push_creator_falls_back_without_collection_policy() {
 async fn resolve_push_creator_falls_back_for_unregistered_public_document() {
     let acp = LocalDocumentACP::new(Arc::new(MemoryAcpStore::new()));
 
-    let creator = resolve_push_creator(Some(&acp), &protected_collection(), "doc1", "local-peer")
-        .await
-        .unwrap();
+    let creator =
+        resolve_push_creator(Some(&acp), &protected_collection(), "doc1", "local-peer").await;
 
     assert_eq!(creator, "local-peer");
 }
 
 #[tokio::test]
-async fn resolve_push_creator_errors_when_acp_lookup_fails() {
-    let error = resolve_push_creator(
+async fn resolve_push_creator_falls_back_when_acp_lookup_fails() {
+    let creator = resolve_push_creator(
         Some(&FailingAcp),
         &protected_collection(),
         "doc1",
         "local-peer",
     )
-    .await
-    .unwrap_err();
+    .await;
 
-    assert!(matches!(error, PushCreatorError::LookupFailed { .. }));
+    assert_eq!(creator, "local-peer");
+}
+
+#[tokio::test]
+async fn resolve_push_creator_falls_back_without_document_acp() {
+    let creator = resolve_push_creator(None, &protected_collection(), "doc1", "local-peer").await;
+
+    assert_eq!(creator, "local-peer");
 }
 
 fn protected_collection() -> Collection {
