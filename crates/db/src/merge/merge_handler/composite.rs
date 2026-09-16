@@ -392,6 +392,7 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
                             &payload,
                             metadata,
                             from_collection,
+                            is_root,
                             &doc_id,
                             collection.map(|collection| *collection),
                         )
@@ -414,6 +415,7 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
         payload: &defra_core::block::CompositeDeltaPayload,
         metadata: &BlockMetadata<'_>,
         from_collection: bool,
+        is_root: bool,
         doc_id_str: &str,
         collection_lookup: Option<Collection>,
     ) -> std::result::Result<MergeOutcome, MergeError> {
@@ -588,7 +590,10 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
                     }
                 }
 
-                if let Some(collection) = context.collection.as_ref() {
+                // Once per inbound head, as Go's SendUpdate after merge: the
+                // parent walk merges older composites of the same document
+                // first, and each would otherwise re-push the current document.
+                if let Some(collection) = context.collection.as_ref().filter(|_| is_root) {
                     if let Some(action) =
                         self.se_post_commit_action(doc_id_str, collection.schema())
                     {
@@ -819,6 +824,7 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
                             &payload,
                             metadata,
                             from_collection,
+                            is_root,
                             batch_merged,
                             pending_events,
                             pending_post_commit_actions,
@@ -848,6 +854,7 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
         payload: &defra_core::block::CompositeDeltaPayload,
         metadata: &BlockMetadata<'_>,
         from_collection: bool,
+        is_root: bool,
         batch_merged: &std::sync::Mutex<RapidHashSet<Cid>>,
         pending_events: &std::sync::Mutex<Vec<PendingMergeEvent>>,
         pending_post_commit_actions: &std::sync::Mutex<Vec<PendingPostCommitAction>>,
@@ -995,7 +1002,10 @@ impl<S: Store, B: blockstore::Blockstore> DbMergeHandler<S, B> {
                     }
                 }
 
-                if let Some(collection) = context.collection.as_ref() {
+                // Once per inbound head, as Go's SendUpdate after merge: the
+                // parent walk merges older composites of the same document
+                // first, and each would otherwise re-push the current document.
+                if let Some(collection) = context.collection.as_ref().filter(|_| is_root) {
                     if let Some(action) =
                         self.se_post_commit_action(doc_id_str, collection.schema())
                     {

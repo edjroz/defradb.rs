@@ -108,3 +108,61 @@ async fn batch_merge_pushes_se_artifacts_for_every_merged_document() {
     expected.sort();
     assert_eq!(calls, expected);
 }
+
+#[tokio::test]
+async fn multi_commit_dag_pushes_se_artifacts_once_for_the_head() {
+    use blockstore::Blockstore as _;
+    use defra_core::block::{Block, CompositeDeltaPayload, CrdtDelta, DAGLink, LwwDeltaPayload};
+
+    let (handler, blockstore, repusher) = make_handler_with_encrypted_index().await;
+    let create = build_merge_block(&blockstore, "Alice", 30).await;
+
+    let mut data = Vec::new();
+    ciborium::into_writer(&"Alicia", &mut data).unwrap();
+    let field = Block::new(
+        CrdtDelta::Lww(LwwDeltaPayload {
+            field_name: "name".to_string(),
+            schema_version_id: "v1".to_string(),
+            priority: 2,
+            data,
+        }),
+        vec![],
+        vec![],
+    );
+    let field_cid = field.generate_cid().unwrap();
+    blockstore
+        .put(&field_cid, &field.to_dag_cbor().unwrap())
+        .await
+        .unwrap();
+    let update = Block::new(
+        CrdtDelta::Composite(CompositeDeltaPayload {
+            schema_version_id: "v1".to_string(),
+            priority: 2,
+            status: 1,
+        }),
+        vec![create.cid],
+        vec![DAGLink::new("name", field_cid)],
+    );
+    let update_cid = update.generate_cid().unwrap();
+    let update_data = update.to_dag_cbor().unwrap();
+    blockstore.put(&update_cid, &update_data).await.unwrap();
+
+    let metadata = BlockMetadata::normal(
+        &create.doc_id,
+        "col-users",
+        &create.creator,
+        create.sender_peer.as_deref(),
+        false,
+    );
+    let outcome = handler
+        .handle_block(&update_cid, &update_data, metadata)
+        .await
+        .unwrap();
+
+    assert_eq!(outcome, MergeOutcome::Merged);
+    assert_eq!(
+        *repusher.calls.lock().unwrap(),
+        vec![("col-users".to_string(), create.doc_id.clone())],
+        "one push for the head, not one per merged parent"
+    );
+}
