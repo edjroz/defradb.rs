@@ -243,18 +243,20 @@ impl<S: Store + 'static, B: Blockstore + 'static, T: P2PTransport> SeArtifactRep
         // The merge path calls this while holding the document's merge guard,
         // and the retry sweep while walking a peer's markers. The fan-out is
         // per-replicator network I/O, so it runs detached, as the live
-        // broadcast paths above do.
+        // broadcast paths above do. Unlike those, nothing durable would replay
+        // a shed SE push, so a full pool runs it inline rather than dropping it.
         let sync = self.sync.clone();
         let collection_id = collection_id.to_string();
         self.sync
-            .spawn_non_authoritative_broadcast_task("se_artifact_repush", async move {
+            .spawn_or_run_non_authoritative_broadcast("se_artifact_repush", async move {
                 sync.push_se_artifacts_to_replicators_for_document(
                     &collection_id,
                     artifacts,
                     &document_json,
                 )
                 .await;
-            });
+            })
+            .await;
     }
 }
 
