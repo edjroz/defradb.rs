@@ -243,7 +243,12 @@ async fn outage_replay(
         .await
         .unwrap_or_else(|e| panic!("[{label}] restart node{receiver}: {e}"));
 
-    let expected = ["LiveProtected", "LivePublic", "OutageProtected", "OutagePublic"];
+    let expected = [
+        "LiveProtected",
+        "LivePublic",
+        "OutageProtected",
+        "OutagePublic",
+    ];
     let arrived = await_names(cluster, receiver, key, expected.len()).await;
     let missing: Vec<&str> = expected
         .iter()
@@ -251,7 +256,10 @@ async fn outage_replay(
         .filter(|n| !arrived.iter().any(|a| a == n))
         .collect();
 
-    println!("[{label}] on node{receiver} after {}s: arrived {arrived:?}", ARRIVAL_BUDGET.as_secs());
+    println!(
+        "[{label}] on node{receiver} after {}s: arrived {arrived:?}",
+        ARRIVAL_BUDGET.as_secs()
+    );
     println!("[{label}] MISSING: {missing:?}");
     report_sender_logs(cluster, writer, label);
     missing.into_iter().map(str::to_string).collect()
@@ -383,14 +391,22 @@ async fn d_go_to_rust_to_rust_forwarding_outage() {
         .await
         .expect("restart C");
 
-    let expected = ["LiveProtected", "LivePublic", "OutageProtected", "OutagePublic"];
+    let expected = [
+        "LiveProtected",
+        "LivePublic",
+        "OutageProtected",
+        "OutagePublic",
+    ];
     let arrived = await_names(&cluster, 1, &key, expected.len()).await;
     let missing: Vec<&str> = expected
         .iter()
         .copied()
         .filter(|n| !arrived.iter().any(|a| a == n))
         .collect();
-    println!("[{label}] on C after {}s: arrived {arrived:?}", ARRIVAL_BUDGET.as_secs());
+    println!(
+        "[{label}] on C after {}s: arrived {arrived:?}",
+        ARRIVAL_BUDGET.as_secs()
+    );
     println!("[{label}] MISSING: {missing:?}");
     report_sender_logs(&cluster, 0, label);
     assert!(missing.is_empty(), "{label} lost {missing:?}");

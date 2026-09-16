@@ -113,7 +113,9 @@ async fn protected_and_public_docs_replay_into_a_restarted_peer() {
         .expect("schema on node1");
 
     node0.p2p_connect(&[&addr1]).expect("connect");
-    node0.p2p_collection_add(&["User"]).expect("subscribe node0");
+    node0
+        .p2p_collection_add(&["User"])
+        .expect("subscribe node0");
     cluster
         .client(1)
         .p2p_collection_add(&["User"])
