@@ -5931,7 +5931,7 @@ dependencies = [
 [[package]]
 name = "iroh-bitswap"
 version = "0.2.0"
-source = "git+https://github.com/sourcenetwork/beetle?rev=255e4cfee016697c77ec92136dbe5d57225eb2d5#255e4cfee016697c77ec92136dbe5d57225eb2d5"
+source = "git+https://github.com/sourcenetwork/beetle?rev=7317b52707dfcbb1e8408d79ec571df5af5b2f99#7317b52707dfcbb1e8408d79ec571df5af5b2f99"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
