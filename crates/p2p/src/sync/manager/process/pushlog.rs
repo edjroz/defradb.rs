@@ -12,7 +12,7 @@
 //! `at_global_cap_an_unawaited_descendant_is_shed`, and
 //! `pending_capacity_sheds_unrelated_blocks_but_accepts_missing_dependency`.
 
-use std::collections::HashSet;
+use rapidhash::{HashSetExt, RapidHashSet};
 use std::time::Duration;
 use web_time::Instant;
 
@@ -834,7 +834,7 @@ impl<B: Blockstore + 'static> SyncManager<B> {
     /// requested CIDs. Merely being connected or having announced the root is
     /// not evidence that a peer can serve linked descendants (#1512).
     pub(crate) fn get_providers_for_cids(&self, cids: &[Cid]) -> Vec<String> {
-        let mut providers = HashSet::new();
+        let mut providers = RapidHashSet::new();
 
         // Add peers known to have any of the CIDs
         for cid in cids {

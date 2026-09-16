@@ -4,7 +4,7 @@
 //! rung per pass, returning to the first rung once documents land — while
 //! staying bounded, so one unresponsive peer cannot hold the serial sweep.
 
-use std::collections::HashMap;
+use rapidhash::RapidHashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -45,7 +45,7 @@ enum Outcome {
 /// marker of every delivered document.
 struct ScriptedPusher {
     peerstore: Peerstore<RegolithStore>,
-    script: HashMap<String, Outcome>,
+    script: RapidHashMap<String, Outcome>,
     attempted: Mutex<Vec<String>>,
 }
 
@@ -299,7 +299,10 @@ impl Sweep {
     }
 
     /// Every peer holds one due marker per document, all on a fresh ladder.
-    async fn with_peers(peers: &[(&str, Vec<String>)], script: HashMap<String, Outcome>) -> Self {
+    async fn with_peers(
+        peers: &[(&str, Vec<String>)],
+        script: RapidHashMap<String, Outcome>,
+    ) -> Self {
         let store = Arc::new(RegolithStore::in_memory().unwrap());
         let peerstore = Peerstore::new(Arc::clone(&store));
         let initial = RetryInfo::new_initial().to_bytes().unwrap();
