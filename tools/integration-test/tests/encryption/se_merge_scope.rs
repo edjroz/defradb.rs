@@ -207,7 +207,7 @@ async fn rust_merger_se_query_finds_replicated_doc() {
 
 /// Go CREATOR (node 2) -> Rust MIDDLE (node 0) -> Rust TAIL (node 1).
 #[tokio::test]
-async fn rust_merger_se_query_finds_go_created_doc() {
+async fn go_creator_rust_merger_se_query_finds_doc() {
     let cluster = TestCluster::builder()
         .rust_nodes(2)
         .go_nodes(1)
