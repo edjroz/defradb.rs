@@ -66,6 +66,11 @@ async fn protected_and_public_docs_replay_into_a_restarted_peer() {
         .with_keyring()
         .with_p2p()
         .with_acp_local()
+        // With a keyring the node signs anonymous writes with its own DID, and
+        // the receiver's explicit replay authorization check then rejects them
+        // because the replicator's authorizer is Alice. That is a separate
+        // defect on main; this test is about the retry path, so it runs unsigned.
+        .no_signing_multiplier()
         .build()
         .await
         .expect("cluster start");
